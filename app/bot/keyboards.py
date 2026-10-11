@@ -18,7 +18,8 @@ from app.services.support_contacts import (
 from app.services.users import DEFAULT_SETTINGS, on
 
 # Default order for user menu items (drag-and-drop in web panel edits menu_order)
-# guide/faq removed from keyboard — keep texts available via /help if needed
+# guide/faq removed from keyboard — keep texts available via /help if needed.
+# Connection «آموزش‌ها» lives on the service card (not the main ReplyKeyboard).
 DEFAULT_MENU_ORDER = [
     "shop",
     "services",
@@ -28,6 +29,8 @@ DEFAULT_MENU_ORDER = [
     "reseller_apply",
     "miniapp",
 ]
+# Alias kept for callers that distinguish catalog vs active (same set today).
+DEFAULT_ACTIVE_MENU_ORDER = list(DEFAULT_MENU_ORDER)
 
 # Legacy keys stripped from saved menu_order so old installs drop them from the keyboard
 REMOVED_MENU_KEYS = frozenset({"guide", "faq", "restart", "help", "referral"})
@@ -701,16 +704,17 @@ def miniapp_inline_keyboard(
     if not view and "miniapp" not in _menu_order(ui):
         return None
     text = (label or _t(ui, "btn_miniapp") or "📱 مینی‌اپ").strip() or "📱 مینی‌اپ"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=text[:64],
-                    web_app=WebAppInfo(url=url),
-                )
-            ]
-        ]
-    )
+    # Prefer _ikb so premium btn_miniapp icons survive (same as reply keyboard).
+    if label is None:
+        btn = _ikb(
+            text[:64],
+            web_app=WebAppInfo(url=url),
+            ui=ui,
+            label_key="btn_miniapp",
+        )
+    else:
+        btn = InlineKeyboardButton(text=text[:64], web_app=WebAppInfo(url=url))
+    return InlineKeyboardMarkup(inline_keyboard=[[btn]])
 
 
 def miniapp_reseller_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup | None:
@@ -1047,9 +1051,9 @@ def wholesale_plans_keyboard(
     plans: list[Plan],
     ui: dict | None = None,
     *,
-    back_callback: str = "shop:kind:wholesale",
+    back_callback: str = "shop:list",
 ) -> InlineKeyboardMarkup:
-    """Wholesale plan names — per-plan color override, else wholesale kind."""
+    """Wholesale plan names — Back returns to shop kind hub (not this screen)."""
     rows = [
         [
             _ikb(
@@ -1321,6 +1325,17 @@ def pay_methods(order_id: int, ui: dict | None = None) -> InlineKeyboardMarkup:
     rows.append(
         [
             _ikb(
+                _t(ui, "btn_back") or "⬅️ بازگشت",
+                callback_data=f"pay:back:{order_id}",
+                style=_style(ui, "back"),
+                ui=ui,
+                label_key="btn_back",
+            )
+        ]
+    )
+    rows.append(
+        [
+            _ikb(
                 _t(ui, "btn_cancel"),
                 callback_data="menu:home",
                 style=_style(ui, "cancel", fallback="danger"),
@@ -1332,7 +1347,12 @@ def pay_methods(order_id: int, ui: dict | None = None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def services_keyboard(services: list, ui: dict | None = None) -> InlineKeyboardMarkup:
+def services_keyboard(
+    services: list,
+    ui: dict | None = None,
+    *,
+    reseller_capacity_label: str | None = None,
+) -> InlineKeyboardMarkup:
     """Entity names only — actions/back live on reply keyboard."""
     _ = ui
     rows = [
@@ -1344,6 +1364,16 @@ def services_keyboard(services: list, ui: dict | None = None) -> InlineKeyboardM
         ]
         for s in services
     ]
+    if reseller_capacity_label:
+        rows.insert(
+            0,
+            [
+                InlineKeyboardButton(
+                    text=str(reseller_capacity_label)[:64],
+                    callback_data="svc:reseller",
+                )
+            ],
+        )
     if not rows:
         rows = [[InlineKeyboardButton(text="سرویسی نیست", callback_data="svc:list")]]
     return InlineKeyboardMarkup(inline_keyboard=rows)

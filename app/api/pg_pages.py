@@ -1800,7 +1800,11 @@ def register_pg_pages(
             purge_orphaned_staff_access,
             web_access_status_map,
         )
-        from app.services.resellers import FEATURE_PERMS, list_reseller_plans
+        from app.services.resellers import (
+            FEATURE_PERMS,
+            ensure_current_capacity_reseller_plan,
+            list_reseller_plans,
+        )
 
         err = request.query_params.get("err")
         ok = request.query_params.get("ok")
@@ -1810,6 +1814,19 @@ def register_pg_pages(
         reseller_plans = []
         admin_usage: dict = {}
         try:
+            try:
+                await ensure_current_capacity_reseller_plan(session)
+                await session.commit()
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).exception(
+                    "ensure current_capacity plan failed on /pg/admins"
+                )
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
             # Drop web rows for PG admins that no longer exist in PasarGuard
             try:
                 await purge_orphaned_staff_access(session)
@@ -2002,7 +2019,21 @@ def register_pg_pages(
         msg = f"ادمین «{uname}» در پاسارگارد ساخته شد"
         # One web path only: reseller XOR pg_staff (never both)
         if as_reseller:
+            from app.db.models import ResellerPlan
+            from app.services.pg_admin_subscription import is_current_capacity_plan
             from app.services.resellers import provision_existing_pg_admin
+
+            create_plan = await session.get(ResellerPlan, int(plan_raw))
+            if create_plan is None or not create_plan.is_active:
+                return RedirectResponse(
+                    f"/pg/admins?err={_q(f'{msg} — ولی نمایندگی ساخته نشد: پلن نمایندگی معتبر نیست')}",
+                    status_code=303,
+                )
+            if is_current_capacity_plan(create_plan):
+                return RedirectResponse(
+                    f"/pg/admins?err={_q(f'{msg} — پلن «ظرفیت فعلی» فقط برای اعطای نماینده به ادمین از قبل موجود است؛ از «اعطای نماینده» استفاده کنید')}",
+                    status_code=303,
+                )
 
             _profile, hint, werr = await provision_existing_pg_admin(
                 session,

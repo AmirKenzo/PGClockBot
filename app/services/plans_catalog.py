@@ -504,6 +504,8 @@ async def delete_reseller_plan(session: AsyncSession, plan: ResellerPlan) -> Non
 
     Raises PlanDeleteBlocked. Does not commit — caller owns the transaction.
     """
+    if bool(getattr(plan, "is_system", False)):
+        raise PlanDeleteBlocked("پلن سیستمی («ظرفیت فعلی») قابل حذف نیست")
     refs = await reseller_plan_reference_counts(session, int(plan.id))
     if any(int(v or 0) > 0 for v in refs.values()):
         raise PlanDeleteBlocked(

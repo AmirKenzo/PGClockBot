@@ -675,7 +675,7 @@ class ResellerPlan(Base):
     price_per_gb: Mapped[int] = mapped_column(Integer, default=0)
     # Optional PasarGuard group ids this PAYG price is intended for (comma-separated)
     pg_group_ids: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    # subscription | addon_volume | addon_users
+    # subscription | current_capacity | addon_volume | addon_users
     plan_kind: Mapped[str] = mapped_column(String(32), default="subscription")
     # Subscription period in days; 0 = no time limit (also skip for PAYG)
     duration_days: Mapped[int] = mapped_column(Integer, default=0)
@@ -699,6 +699,8 @@ class ResellerPlan(Base):
         nullable=True,
         index=True,
     )
+    # Platform seed plans (e.g. «ظرفیت فعلی») — not operator-deletable / not sellable
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

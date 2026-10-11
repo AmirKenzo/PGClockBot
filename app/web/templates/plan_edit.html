@@ -28,8 +28,8 @@
       </label>
       <label class="form-field">حجم (گیگ)
         
-        <input name="data_limit_gb" type="number" step="0.1" min="0" value="{{ plan.data_limit_gb if plan.data_limit_gb is not none else '' }}" placeholder="نامحدود" />
-        <small class="muted">خالی = نامحدود{% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_data_max %} — سقف زنده: {{ pg_limit_snapshot.per_user_data_max | bytes }}{% endif %}</small>
+        <input name="data_limit_gb" type="number" step="0.1" min="0" value="{{ plan.data_limit_gb if plan.data_limit_gb is not none else '' }}" placeholder="خالی = نامحدود" />
+        <small class="muted">برای حجم نامحدود فیلد را <b>خالی</b> بگذارید — عدد صفر نامحدود نیست{% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_data_max %} — سقف زنده: {{ pg_limit_snapshot.per_user_data_max | bytes }}{% endif %}</small>
       </label>
     </div>
 

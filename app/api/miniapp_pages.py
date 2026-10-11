@@ -509,7 +509,13 @@ def register_miniapp_pages(app: FastAPI, *, render, get_db) -> None:
     @app.get("/miniapp", response_class=HTMLResponse)
     async def miniapp_index(request: Request):
         assert_miniapp_feature_enabled()
-        return render(request, "miniapp.html", {})
+        resp = render(request, "miniapp.html", {})
+        # Never let intermediaries / SW-ish caches serve a shell without WebApp context.
+        try:
+            resp.headers["Cache-Control"] = "no-store"
+        except Exception:
+            pass
+        return resp
 
     @app.get("/api/mini/me")
     async def mini_me(request: Request, session: AsyncSession = Depends(get_db)):

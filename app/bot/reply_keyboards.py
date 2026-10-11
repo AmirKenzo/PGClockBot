@@ -1184,6 +1184,10 @@ def reply_action_map(
                     for key, text in _admin_loyalty_submenu_entries(ui, include_tiers=False):
                         mapping[(text or "").strip()] = key
 
+    # Stale ReplyKeyboard labels after btn_* renames (setdefault: live labels win).
+    from app.services.reply_label_aliases import register_aliases_on_mapping
+
+    register_aliases_on_mapping(mapping, ui)
     return {k: v for k, v in mapping.items() if k}
 
 def _shop_submenu_entries(

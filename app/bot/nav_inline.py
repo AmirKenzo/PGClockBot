@@ -1129,6 +1129,7 @@ def service_card_keyboard(
                 callback_data=f"guide:svc:{sid}",
                 ui=ui,
                 label_key="btn_guides",
+                style=_style(ui, "guides", fallback="primary"),
             ),
         ],
         [
@@ -1173,12 +1174,17 @@ def service_card_keyboard(
 
 
 def services_list_keyboard(
-    services: list, ui: dict | None = None
+    services: list,
+    ui: dict | None = None,
+    *,
+    reseller_capacity_label: str | None = None,
 ) -> InlineKeyboardMarkup:
     """Paginated-ready service list with back-to-home (inline nav)."""
     from app.bot.keyboards import services_keyboard
 
-    base = services_keyboard(services, ui)
+    base = services_keyboard(
+        services, ui, reseller_capacity_label=reseller_capacity_label
+    )
     rows = list(base.inline_keyboard)
     rows.append(
         [
@@ -1195,10 +1201,17 @@ def services_list_keyboard(
 
 
 def miniapp_reply_button(ui: dict | None = None):
-    """KeyboardButton with web_app for the stable main ReplyKeyboard (platform bot)."""
+    """KeyboardButton with web_app for the stable main ReplyKeyboard (platform bot).
+
+    Do **not** set ``icon_custom_emoji_id`` on web_app KeyboardButtons: some
+    Telegram clients open the sheet without ``initData`` when that field is set
+    (MenuButtonWebApp beside the composer still works). Keep any premium glyph
+    inside the plain ``text`` via ``rich_plain_text`` instead.
+    """
     from aiogram.types import KeyboardButton, WebAppInfo
 
     from app.config import get_settings
+    from app.services.rich_text import rich_plain_text
     from app.services.users import current_shop_reseller_id
 
     if current_shop_reseller_id():
@@ -1206,6 +1219,7 @@ def miniapp_reply_button(ui: dict | None = None):
     settings = get_settings()
     if not settings.miniapp_enabled:
         return None
+    # Same canonical URL as MenuButtonWebApp (chat_menu.sync_telegram_menu_button).
     url = (settings.miniapp_url or "").strip()
     if not url.startswith("https://"):
         return None
@@ -1213,5 +1227,6 @@ def miniapp_reply_button(ui: dict | None = None):
 
     if "miniapp" not in _menu_order(ui):
         return None
-    text = (_t(ui, "btn_miniapp") or "📱 مینی‌اپ").strip() or "📱 مینی‌اپ"
+    raw = (ui or {}).get("btn_miniapp") if ui else None
+    text = (rich_plain_text(raw) if raw else "").strip() or "📱 مینی‌اپ"
     return KeyboardButton(text=text[:64], web_app=WebAppInfo(url=url))

@@ -268,18 +268,25 @@
       <p class="muted">ادمین پاسارگارد: <strong dir="ltr">{{ uname }}</strong>
         — دسترسی «ادمین فرعی» حذف می‌شود و مسیر «نماینده» (پنل ربات + فروشگاه) جایگزین می‌شود.
         هر ادمین فقط یکی از این دو مسیر را می‌تواند داشته باشد. محدودیت‌های نقش پاسارگارد و پلن نمایندگی همچنان اعمال می‌شوند.</p>
-      {% if not reseller_plans %}
+      {% set grant_plans = (reseller_plans or [])|selectattr('plan_kind', 'in', ['subscription', 'current_capacity'])|list %}
+      {% if not grant_plans %}
+      {% set grant_plans = (reseller_plans or [])|rejectattr('plan_kind', 'in', ['addon_volume', 'addon_users'])|list %}
+      {% endif %}
+      {% set cc_default = (grant_plans|selectattr('plan_kind', 'equalto', 'current_capacity')|list) %}
+      {% set default_plan_id = cc_default[0].id if cc_default else none %}
+      {% if not grant_plans %}
       <div class="flash warn">هنوز پلن نمایندگی فعالی ندارید — ابتدا از بخش نمایندگان یک پلن بسازید.</div>
       {% endif %}
       <label class="form-field">پلن نمایندگی
-        <select name="plan_id" required {% if not reseller_plans %}disabled{% endif %}>
+        <select name="plan_id" required {% if not grant_plans %}disabled{% endif %}>
           <option value="">— انتخاب پلن —</option>
-          {% for p in reseller_plans or [] %}
-          <option value="{{ p.id }}">{% if (p.billing_mode or 'fixed') == 'payg' %}[PAYG] {% else %}[ثابت] {% endif %}{{ p.name }}{% if (p.billing_mode or 'fixed') == 'payg' and p.price_per_gb %} · {{ "\u200e" }}{{ p.price_per_gb | money }} / گیگ{% endif %}</option>
+          {% for p in grant_plans %}
+          <option value="{{ p.id }}" {% if default_plan_id and p.id == default_plan_id %}selected{% endif %}>{% if (p.plan_kind or '') == 'current_capacity' %}[ظرفیت فعلی] {% elif (p.billing_mode or 'fixed') == 'payg' %}[PAYG] {% else %}[ثابت] {% endif %}{{ p.name }}{% if (p.billing_mode or 'fixed') == 'payg' and p.price_per_gb %} · {{ "\u200e" }}{{ p.price_per_gb | money }} / گیگ{% elif p.duration_days %} — {{ p.duration_days }} روز{% endif %}</option>
           {% endfor %}
         </select>
         <small class="muted">دسترسی‌های داشبورد، پلن، سفارش، تنظیمات ربات و… از این پلن می‌آید</small>
       </label>
+      <div class="flash warn">پلن پیش‌فرض «ظرفیت فعلی» سقف حجم/کاربر همین ادمین در پاسارگارد را حفظ می‌کند و صفر نمی‌کند. برای سقف ثابت پلن دیگری انتخاب کنید.</div>
       <label class="form-field">رمز عبور مشترک
         <input name="web_password" type="password" autocomplete="new-password" dir="ltr"
           placeholder="{% if st.get('password_ready') %}خالی = استفاده از رمز ذخیره‌شده{% else %}رمز الزامی است{% endif %}"
@@ -290,7 +297,7 @@
         <input name="note" placeholder="تبدیل از ادمین فرعی" />
       </label>
       <div class="actions">
-        <button class="btn" type="submit" {% if not reseller_plans %}disabled{% endif %}>تبدیل به نماینده</button>
+        <button class="btn" type="submit" {% if not grant_plans %}disabled{% endif %}>تبدیل به نماینده</button>
         <button type="button" class="btn btn-ghost" data-modal-close>انصراف</button>
       </div>
     </form>
@@ -310,18 +317,25 @@
       <p class="muted">ادمین پاسارگارد: <strong dir="ltr">{{ uname }}</strong>
         — منوی پاسارگارد از نقش ادمین؛ فروشگاه/ربات از پلن نمایندگی.
         اگر این ادمین قبلاً ادمین فرعی باشد، ابتدا آن دسترسی را حذف کنید.</p>
-      {% if not reseller_plans %}
+      {% set grant_plans = (reseller_plans or [])|selectattr('plan_kind', 'in', ['subscription', 'current_capacity'])|list %}
+      {% if not grant_plans %}
+      {% set grant_plans = (reseller_plans or [])|rejectattr('plan_kind', 'in', ['addon_volume', 'addon_users'])|list %}
+      {% endif %}
+      {% set cc_default = (grant_plans|selectattr('plan_kind', 'equalto', 'current_capacity')|list) %}
+      {% set default_plan_id = cc_default[0].id if cc_default else none %}
+      {% if not grant_plans %}
       <div class="flash warn">هنوز پلن نمایندگی فعالی ندارید — ابتدا از بخش نمایندگان یک پلن بسازید.</div>
       {% endif %}
       <label class="form-field">پلن نمایندگی
-        <select name="plan_id" required {% if not reseller_plans %}disabled{% endif %}>
+        <select name="plan_id" required {% if not grant_plans %}disabled{% endif %}>
           <option value="">— انتخاب پلن —</option>
-          {% for p in reseller_plans or [] %}
-          <option value="{{ p.id }}">{% if (p.billing_mode or 'fixed') == 'payg' %}[PAYG] {% else %}[ثابت] {% endif %}{{ p.name }}{% if (p.billing_mode or 'fixed') == 'payg' and p.price_per_gb %} · {{ "\u200e" }}{{ p.price_per_gb | money }} / گیگ{% endif %}</option>
+          {% for p in grant_plans %}
+          <option value="{{ p.id }}" {% if default_plan_id and p.id == default_plan_id %}selected{% endif %}>{% if (p.plan_kind or '') == 'current_capacity' %}[ظرفیت فعلی] {% elif (p.billing_mode or 'fixed') == 'payg' %}[PAYG] {% else %}[ثابت] {% endif %}{{ p.name }}{% if (p.billing_mode or 'fixed') == 'payg' and p.price_per_gb %} · {{ "\u200e" }}{{ p.price_per_gb | money }} / گیگ{% elif p.duration_days %} — {{ p.duration_days }} روز{% endif %}</option>
           {% endfor %}
         </select>
         <small class="muted">دسترسی‌های داشبورد، پلن، سفارش، تنظیمات ربات و… از این پلن کپی می‌شود</small>
       </label>
+      <div class="flash warn">پلن پیش‌فرض «ظرفیت فعلی» سقف حجم/کاربر همین ادمین در پاسارگارد را حفظ می‌کند و صفر نمی‌کند. برای سقف ثابت پلن دیگری انتخاب کنید.</div>
       <label class="form-field">نام کاربری وب‌پنل
         <input name="web_username" required autocomplete="off" dir="ltr" readonly
           value="{{ uname|lower }}" />
@@ -336,7 +350,7 @@
         <small class="muted">اختیاری</small>
       </label>
       <div class="actions">
-        <button class="btn" type="submit" {% if not reseller_plans %}disabled{% endif %}>اعطای دسترسی نماینده</button>
+        <button class="btn" type="submit" {% if not grant_plans %}disabled{% endif %}>اعطای دسترسی نماینده</button>
         <button type="button" class="btn btn-ghost" data-modal-close>انصراف</button>
       </div>
     </form>
@@ -416,10 +430,12 @@
           <select name="plan_id" id="create-plan-id" disabled {% if not reseller_plans %}data-no-plans="1"{% endif %}>
             <option value="">— انتخاب پلن —</option>
             {% for p in reseller_plans or [] %}
+            {% if (p.plan_kind or 'subscription') == 'subscription' %}
             <option value="{{ p.id }}">{% if (p.billing_mode or 'fixed') == 'payg' %}[PAYG] {% else %}[ثابت] {% endif %}{{ p.name }}{% if (p.billing_mode or 'fixed') == 'payg' and p.price_per_gb %} · {{ "\u200e" }}{{ p.price_per_gb | money }} / گیگ{% endif %}</option>
+            {% endif %}
             {% endfor %}
           </select>
-          <small class="muted">ثابت یا PAYG — حالت پرداخت و نرخ از همین پلن می‌آید</small>
+          <small class="muted">ثابت یا PAYG — پلن «ظرفیت فعلی» اینجا نیست (فقط برای ادمین موجود)</small>
         </label>
         <div class="ui-switch-section">
           <span class="ui-switch-section-title">سطح دسترسی پنل ربات (وب = بات)</span>

@@ -76,7 +76,7 @@ def guide_detail_keyboard(
 
 def delivery_guides_keyboard(ui: dict, *, audience: str = "user") -> InlineKeyboardMarkup:
     """Single entry button attached to delivery messages."""
-    label = (ui.get("btn_guides") or "📘 آموزش اتصال").strip()[:64]
+    label = (kb._t(ui, "btn_guides") or "📘 آموزش اتصال").strip()[:64]
     kwargs: dict = {
         "text": label,
         "callback_data": f"guide:list:0:{audience}"[:64],
