@@ -2583,9 +2583,26 @@ def create_api_app(lifespan=None) -> FastAPI:
         pg_roles = []
         reseller_plans_err = None
         if is_platform_admin(staff):
-            from app.services.resellers import FEATURE_PERMS, list_reseller_plans
+            from app.services.resellers import (
+                FEATURE_PERMS,
+                ensure_current_capacity_reseller_plan,
+                list_reseller_plans,
+            )
 
             feature_perms = FEATURE_PERMS
+            try:
+                await ensure_current_capacity_reseller_plan(session)
+                await session.commit()
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).exception(
+                    "ensure current_capacity plan failed on /plans"
+                )
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
             try:
                 reseller_plans = await list_reseller_plans(session)
             except Exception:

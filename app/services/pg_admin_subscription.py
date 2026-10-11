@@ -31,8 +31,12 @@ STATUS_EXPIRED = "expired"
 STATUS_REVOKED = "revoked"
 
 PLAN_KIND_SUBSCRIPTION = "subscription"
+PLAN_KIND_CURRENT_CAPACITY = "current_capacity"
 PLAN_KIND_ADDON_VOLUME = "addon_volume"
 PLAN_KIND_ADDON_USERS = "addon_users"
+
+# Clock-bearing kinds (time expiry / renew). Addons are mid-period packs only.
+_CLOCK_PLAN_KINDS = frozenset({PLAN_KIND_SUBSCRIPTION, PLAN_KIND_CURRENT_CAPACITY})
 
 RENEW_MODE_FIXED = "fixed"
 RENEW_MODE_FROM_CAPACITY = "from_capacity"
@@ -58,17 +62,59 @@ def plan_kind_of(plan: ResellerPlan | None) -> str:
     if plan is None:
         return PLAN_KIND_SUBSCRIPTION
     kind = str(getattr(plan, "plan_kind", None) or PLAN_KIND_SUBSCRIPTION).strip().lower()
-    if kind in {PLAN_KIND_SUBSCRIPTION, PLAN_KIND_ADDON_VOLUME, PLAN_KIND_ADDON_USERS}:
+    if kind in {
+        PLAN_KIND_SUBSCRIPTION,
+        PLAN_KIND_CURRENT_CAPACITY,
+        PLAN_KIND_ADDON_VOLUME,
+        PLAN_KIND_ADDON_USERS,
+    }:
         return kind
     return PLAN_KIND_SUBSCRIPTION
 
 
 def is_subscription_plan(plan: ResellerPlan | None) -> bool:
-    return plan_kind_of(plan) == PLAN_KIND_SUBSCRIPTION
+    """True for clock-bearing packages (standard subscription + current_capacity)."""
+    return plan_kind_of(plan) in _CLOCK_PLAN_KINDS
+
+
+def is_current_capacity_plan(plan: ResellerPlan | None) -> bool:
+    return plan_kind_of(plan) == PLAN_KIND_CURRENT_CAPACITY
 
 
 def is_addon_plan(plan: ResellerPlan | None) -> bool:
     return plan_kind_of(plan) in {PLAN_KIND_ADDON_VOLUME, PLAN_KIND_ADDON_USERS}
+
+
+async def read_live_pg_admin_capacity(pg_username: str) -> tuple[int, int]:
+    """Read live PasarGuard admin data_limit / max_users as (gb, users).
+
+    ``0`` means unset/unlimited on that axis — callers must not push zeros
+    back to PG (would clear a real limit).
+    """
+    from app.services.billing import GB
+    from app.services.pasarguard import get_pg
+    from app.services.pg_quota import _as_int, merge_role_limits
+
+    uname = normalize_pg_username(pg_username)
+    if not uname:
+        return 0, 0
+    try:
+        admin = await get_pg().get_admin(uname)
+    except Exception:
+        logger.exception("read live PG capacity failed admin=%s", uname)
+        return 0, 0
+    if not isinstance(admin, dict) or not admin:
+        return 0, 0
+    role = admin.get("role") if isinstance(admin.get("role"), dict) else None
+    limits = merge_role_limits(admin, role)
+    data_limit_bytes = max(
+        0, _as_int(limits.get("data_limit")) or _as_int(admin.get("data_limit")) or 0
+    )
+    gb = int(data_limit_bytes / GB) if data_limit_bytes > 0 else 0
+    users = max(
+        0, _as_int(limits.get("max_users")) or _as_int(admin.get("max_users")) or 0
+    )
+    return gb, users
 
 
 def _parse_id_list(raw: str | None) -> list[int]:
@@ -326,11 +372,35 @@ async def start_or_refresh_subscription(
     reset_extras: bool = False,
     apply_pg_limits: bool = True,
 ) -> PgAdminSubscription:
-    """Bind/refresh subscription from a subscription-kind plan (not addons)."""
+    """Bind/refresh subscription from a clock-bearing plan (not addons).
+
+    ``current_capacity`` snapshots live PG limits into ``base_*`` and never
+    overwrites PG with the plan's zero ``included_*`` fields.
+    """
     if not is_subscription_plan(plan):
         raise ValueError("این پلن از نوع اشتراک نیست")
-    # PAYG: no time clock
-    if str(getattr(plan, "billing_mode", "") or "").lower() == "payg":
+    preserve = is_current_capacity_plan(plan)
+
+    async def _resolve_base() -> tuple[int, int]:
+        if not preserve:
+            return (
+                max(0, int(getattr(plan, "included_gb", 0) or 0)),
+                max(0, int(getattr(plan, "included_users", 0) or 0)),
+            )
+        snap_gb, snap_users = await read_live_pg_admin_capacity(pg_username)
+        if snap_gb or snap_users:
+            return snap_gb, snap_users
+        # PG read failed / unlimited — keep prior SoT when refreshing.
+        existing = await get_subscription(session, pg_username)
+        if existing is not None and (existing.base_gb or existing.base_users):
+            return (
+                max(0, int(existing.base_gb or 0)),
+                max(0, int(existing.base_users or 0)),
+            )
+        return 0, 0
+
+    # PAYG: no time clock (current_capacity is always fixed billing)
+    if str(getattr(plan, "billing_mode", "") or "").lower() == "payg" and not preserve:
         sub = await get_or_create_subscription(session, pg_username)
         sub.plan_id = int(plan.id)
         sub.access_status = STATUS_ACTIVE
@@ -346,14 +416,15 @@ async def start_or_refresh_subscription(
             await sync_pg_capacity_from_sub(session, sub)
         return sub
 
+    base_gb, base_users = await _resolve_base()
     sub = await get_or_create_subscription(session, pg_username)
     now = _utcnow()
     days = max(0, int(getattr(plan, "duration_days", 0) or 0))
     sub.plan_id = int(plan.id)
     sub.access_status = STATUS_ACTIVE
     sub.started_at = sub.started_at or now
-    sub.base_gb = max(0, int(getattr(plan, "included_gb", 0) or 0))
-    sub.base_users = max(0, int(getattr(plan, "included_users", 0) or 0))
+    sub.base_gb = base_gb
+    sub.base_users = base_users
     if reset_extras:
         sub.extra_gb_purchased = 0
         sub.extra_users_purchased = 0
@@ -371,7 +442,13 @@ async def start_or_refresh_subscription(
         next_total_gb=int(sub.base_gb or 0) + int(sub.extra_gb_purchased or 0),
         next_total_users=int(sub.base_users or 0) + int(sub.extra_users_purchased or 0),
     )
-    if apply_pg_limits and (sub.base_gb or sub.base_users or sub.extra_gb_purchased or sub.extra_users_purchased):
+    # current_capacity: SoT mirrors live PG — sync only when extras need push,
+    # never when totals are zero (would clear unlimited / unread limits).
+    if apply_pg_limits and (
+        sub.extra_gb_purchased
+        or sub.extra_users_purchased
+        or (not preserve and (sub.base_gb or sub.base_users))
+    ):
         await sync_pg_capacity_from_sub(session, sub)
     return sub
 
@@ -551,16 +628,26 @@ async def renew_subscription(
         if anchor < now:
             anchor = now
         sub.expires_at = anchor + timedelta(days=days)
-    # Keep base from plan (subscription package definition)
+    # Keep base from plan (subscription package definition).
+    # current_capacity keeps snapped SoT — never reset from included_*=0.
     sub.plan_id = int(plan.id)
-    sub.base_gb = max(0, int(getattr(plan, "included_gb", 0) or 0))
-    sub.base_users = max(0, int(getattr(plan, "included_users", 0) or 0))
+    if not is_current_capacity_plan(plan):
+        sub.base_gb = max(0, int(getattr(plan, "included_gb", 0) or 0))
+        sub.base_users = max(0, int(getattr(plan, "included_users", 0) or 0))
     sub.last_renewed_at = now
     sub.warn_sent_at = None
 
     try:
         restore_stats = await restore_subscription_access(session, sub, commit=False)
-        await sync_pg_capacity_from_sub(session, sub)
+        # Skip PG push when totals are zero (unlimited / unread) so renew
+        # cannot clear live limits after a current_capacity grant.
+        if (
+            int(sub.base_gb or 0)
+            or int(sub.base_users or 0)
+            or int(sub.extra_gb_purchased or 0)
+            or int(sub.extra_users_purchased or 0)
+        ):
+            await sync_pg_capacity_from_sub(session, sub)
         reset_ok = 0
         reset_err = 0
         if reset_user_traffic:
@@ -811,6 +898,7 @@ async def list_addon_plans(
 
 
 async def list_subscription_plans(session: AsyncSession) -> list[ResellerPlan]:
+    """Active clock-bearing plans (sellable subscriptions only — not current_capacity)."""
     q = (
         select(ResellerPlan)
         .where(

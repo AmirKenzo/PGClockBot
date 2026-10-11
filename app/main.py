@@ -62,6 +62,17 @@ async def seed_demo_plan() -> None:
             )
             await session.commit()
             logger.info("Seeded demo plans")
+        try:
+            from app.services.resellers import ensure_current_capacity_reseller_plan
+
+            await ensure_current_capacity_reseller_plan(session)
+            await session.commit()
+        except Exception:
+            logger.exception("ensure current_capacity reseller plan failed")
+            try:
+                await session.rollback()
+            except Exception:
+                pass
 
 
 def main() -> None:
