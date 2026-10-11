@@ -94,9 +94,19 @@ class InlineSettingsFlowTests(unittest.IsolatedAsyncioTestCase):
         cb = _cb("adm:st:hub")
         session = MagicMock(spec=AsyncSession)
         db_user = SimpleNamespace(role="admin", telegram_id=42)
-        await settings_hub(cb, session, db_user, state=_state())
+        with (
+            patch(
+                "app.bot.handlers.admin_settings.get_all_settings",
+                new=AsyncMock(return_value={}),
+            ),
+            patch(
+                "app.bot.handlers.admin_settings.safe_edit_text",
+                new_callable=AsyncMock,
+            ) as edit,
+        ):
+            await settings_hub(cb, session, db_user, state=_state())
         cb.answer.assert_awaited()
-        cb.message.edit_text.assert_awaited()
+        edit.assert_awaited()
         cb.message.answer.assert_not_awaited()
 
     async def test_forged_settings_callback_outside_nav_still_denied(self):

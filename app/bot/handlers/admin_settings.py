@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot import keyboards as kb
 from app.bot.auth import bot_admin_settings_in_flow, is_platform_admin as _is_admin
 from app.bot.auth import require_bot_owner
+from app.bot.tg_utils import safe_edit_text
 from app.db.models import BotUser, Plan
 from app.services.notifications import NOTIFY_PREFS
 from app.services.pasarguard import get_pg
@@ -40,6 +41,20 @@ async def _lasting_kb(session, db_user, classic):
         session, db_user, classic=classic,
         is_reseller_bot=False, reseller_owner_id=None,
     )
+
+
+async def _silent_settings_cancel(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    db_user: BotUser,
+) -> None:
+    """Cancel typed settings input without a «لغو شد.» bubble (like Back)."""
+    from app.bot.handlers.reply_nav import open_admin_settings_hub
+
+    await state.clear()
+    await _keep_settings_nav(state)
+    await open_admin_settings_hub(message, session, db_user, state, push=False)
 
 router = Router(name="admin_settings")
 
@@ -378,8 +393,8 @@ def _kb(rows: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
 
 _SETTINGS_HUB_TEXT = (
     "⚙️ <b>تنظیمات سریع</b>\n"
-    "بخش‌ها را از کیبورد پایین انتخاب کنید.\n"
-    "ظاهر، رنگ، گزارش روزانه و متن‌های بلند → وب‌پنل."
+    "یک بخش را از دکمه‌های زیر انتخاب کنید.\n"
+    "ظاهر، رنگ، گزارش روزانه → وب‌پنل."
 )
 
 
@@ -425,25 +440,30 @@ async def _panel_link_row(
     ]
 
 
-async def _render_hub(callback: CallbackQuery, *, refresh_keyboard: bool = False) -> None:
-    """Back to the settings hub (inline panel / tip). Reply chrome healed elsewhere."""
-    _ = refresh_keyboard  # legacy flag; lasting KB is restored on cancel/save only
-    rows: list[list[InlineKeyboardButton]] = []
-    panel_row = await _panel_link_row(for_shop=False)
-    if panel_row:
-        rows.append(panel_row)
-    markup = _kb(rows) if rows else None
-    if callback.message:
-        await callback.message.edit_text(
-            _SETTINGS_HUB_TEXT,
-            reply_markup=markup,
-        )
+async def _render_hub(
+    callback: CallbackQuery,
+    session: AsyncSession | None = None,
+    *,
+    refresh_keyboard: bool = False,
+) -> None:
+    """Back to the modern settings hub (section buttons + web panel)."""
+    _ = refresh_keyboard  # lasting KB is restored on cancel/save only
+    if not callback.message:
+        return
+    from app.bot.nav_inline import admin_settings_hub_keyboard
+
+    ui = await get_all_settings(session) if session is not None else {}
+    await safe_edit_text(
+        callback.message,
+        _SETTINGS_HUB_TEXT,
+        reply_markup=admin_settings_hub_keyboard(ui),
+    )
 
 
 async def _render_section(callback: CallbackQuery, session: AsyncSession, sec_id: str) -> None:
     sec = SECTIONS.get(sec_id)
     if not sec:
-        await _render_hub(callback)
+        await _render_hub(callback, session)
         return
 
     if sec.get("kind") == "supports":
@@ -689,7 +709,7 @@ def _owner_screen_for_key(key: str) -> tuple[str, str] | None:
 async def _rerender_after_key(callback: CallbackQuery, session: AsyncSession, key: str) -> None:
     loc = _owner_screen_for_key(key)
     if not loc:
-        await _render_hub(callback)
+        await _render_hub(callback, session)
         return
     sec_id, sub_id = loc
     if sec_id == "notify":
@@ -885,9 +905,13 @@ async def settings_hub(
     is already inside Settings; showing «دسترسی مالک سیستم لازم است» here
     traps them. Hub text is not sensitive; the reply keyboard is already shown.
     """
-    _ = (session, db_user, is_reseller_bot)
+    _ = (db_user, is_reseller_bot)
     await callback.answer()
-    await _render_hub(callback, refresh_keyboard=False)
+    if state is not None:
+        from app.bot import menu_nav as nav
+
+        await nav.set_nav_level(state, nav.NAV_ADMIN_SETTINGS, push=False)
+    await _render_hub(callback, session, refresh_keyboard=False)
 
 
 @settings_actor_required
@@ -1021,12 +1045,7 @@ async def settings_edit_save(
 
             if await try_legacy_cancel(message, state, session, db_user):
                 return
-        await state.clear()
-        await _keep_settings_nav(state)
-        await message.answer(
-            "لغو شد.",
-            reply_markup=await _lasting_kb(session, db_user, kb.admin_settings_reply_keyboard()),
-        )
+        await _silent_settings_cancel(message, state, session, db_user)
         return
     meta = FIELDS.get(key)
     kind = meta[2] if meta else "text"
@@ -1172,12 +1191,7 @@ async def support_title_msg(
 
         if await try_legacy_cancel(message, state, session, db_user):
             return
-        await state.clear()
-        await _keep_settings_nav(state)
-        await message.answer(
-            "لغو شد.",
-            reply_markup=await _lasting_kb(session, db_user, kb.admin_settings_reply_keyboard()),
-        )
+        await _silent_settings_cancel(message, state, session, db_user)
         return
     await state.update_data(support_title=text)
     from app.bot.nav_input import ask_text
@@ -1207,12 +1221,7 @@ async def support_telegram_msg(
 
         if await try_legacy_cancel(message, state, session, db_user):
             return
-        await state.clear()
-        await _keep_settings_nav(state)
-        await message.answer(
-            "لغو شد.",
-            reply_markup=await _lasting_kb(session, db_user, kb.admin_settings_reply_keyboard()),
-        )
+        await _silent_settings_cancel(message, state, session, db_user)
         return
     data = await state.get_data()
     await state.clear()
@@ -1508,12 +1517,7 @@ async def trial_save_name(
 
         if await try_legacy_cancel(message, state, session, db_user):
             return
-        await state.clear()
-        await _keep_settings_nav(state)
-        await message.answer(
-            "لغو شد.",
-            reply_markup=await _lasting_kb(session, db_user, kb.admin_settings_reply_keyboard()),
-        )
+        await _silent_settings_cancel(message, state, session, db_user)
         return
     trial = await _ensure_trial(session)
     trial.name = text[:128]
@@ -1556,12 +1560,7 @@ async def trial_save_days(
 
         if await try_legacy_cancel(message, state, session, db_user):
             return
-        await state.clear()
-        await _keep_settings_nav(state)
-        await message.answer(
-            "لغو شد.",
-            reply_markup=await _lasting_kb(session, db_user, kb.admin_settings_reply_keyboard()),
-        )
+        await _silent_settings_cancel(message, state, session, db_user)
         return
     try:
         days = max(1, int(text))
@@ -1609,12 +1608,7 @@ async def trial_save_gb(
 
         if await try_legacy_cancel(message, state, session, db_user):
             return
-        await state.clear()
-        await _keep_settings_nav(state)
-        await message.answer(
-            "لغو شد.",
-            reply_markup=await _lasting_kb(session, db_user, kb.admin_settings_reply_keyboard()),
-        )
+        await _silent_settings_cancel(message, state, session, db_user)
         return
     try:
         gb = float(text)
