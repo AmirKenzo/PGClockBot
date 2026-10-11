@@ -493,7 +493,7 @@ def register_shop_settings(app, *, render, require_staff, get_db, require_shop_s
                 payload.pop(k, None)
         from app.services.users import set_settings_bulk
 
-        if tab == "terms":
+        if tab in {"terms", "buttons"}:
             from app.services.rich_text import merge_rich_settings_on_save
 
             existing = await get_all_settings(session, reseller_id=rid)

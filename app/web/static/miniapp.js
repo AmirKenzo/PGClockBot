@@ -12,7 +12,12 @@
     } catch (_) {}
   }
 
-  const initData = (tg && tg.initData) || "";
+  /** Live read — some clients inject initData slightly after first paint. */
+  function getInitData() {
+    const w = window.Telegram && window.Telegram.WebApp;
+    return (w && w.initData) || "";
+  }
+
   const root = document.getElementById("root");
   const navEl = document.getElementById("nav");
   const helloEl = document.getElementById("hello");
@@ -148,7 +153,7 @@
     const res = await fetch(path, {
       method: (opts && opts.method) || "GET",
       headers: {
-        "X-Telegram-Init-Data": initData,
+        "X-Telegram-Init-Data": getInitData(),
         ...((opts && opts.body) ? { "Content-Type": "application/json" } : {}),
       },
       body: opts && opts.body ? JSON.stringify(opts.body) : undefined,
@@ -1078,11 +1083,30 @@
     mount(data);
   }
 
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function waitForInitData(maxAttempts) {
+    const n = Math.max(1, maxAttempts || 1);
+    for (let i = 0; i < n; i++) {
+      if (getInitData()) return true;
+      if (tg) {
+        try {
+          tg.ready();
+        } catch (_) {}
+      }
+      await sleep(40 * (i + 1));
+    }
+    return !!getInitData();
+  }
+
   async function load() {
     bindTelegramBackButton();
     root.innerHTML =
       '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
     try {
+      await waitForInitData(6);
       await reload();
       syncTelegramBackButton();
     } catch (e) {

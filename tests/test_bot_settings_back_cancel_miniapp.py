@@ -11,7 +11,8 @@ from app.services.rich_text import pack_rich_text
 
 
 class MiniappPremiumIconTests(unittest.TestCase):
-    def test_reply_button_sets_icon_custom_emoji_id(self):
+    def test_reply_web_app_button_keeps_text_without_icon_custom_emoji(self):
+        """ReplyKeyboard web_app must not set icon_custom_emoji_id (initData)."""
         from app.bot.nav_inline import miniapp_reply_button
 
         body = "📱 مینی‌اپ"
@@ -39,15 +40,16 @@ class MiniappPremiumIconTests(unittest.TestCase):
                 "app.config.get_settings",
                 return_value=MagicMock(
                     miniapp_enabled=True,
-                    miniapp_url="https://example.com/app",
+                    miniapp_url="https://example.com/miniapp/",
                 ),
             ),
         ):
             btn = miniapp_reply_button(ui)
         self.assertIsNotNone(btn)
-        self.assertEqual(btn.icon_custom_emoji_id, "999001")
-        self.assertEqual(btn.text, "مینی‌اپ")
+        self.assertIsNone(getattr(btn, "icon_custom_emoji_id", None))
+        self.assertEqual(btn.text, "📱 مینی‌اپ")
         self.assertIsNotNone(btn.web_app)
+        self.assertEqual(btn.web_app.url, "https://example.com/miniapp/")
 
     def test_inline_keyboard_sets_icon_for_default_label(self):
         from app.bot.keyboards import miniapp_inline_keyboard
