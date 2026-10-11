@@ -22,6 +22,14 @@ class InstallPythonPinTests(unittest.TestCase):
         self.assertIn("_try_apt_install_python312", block)
         self.assertIn("3.10–3.12", block)
         self.assertIn("3.13+", block)
+        # Newer Ubuntu often lacks python3.12 in the default archive.
+        self.assertIn("deadsnakes", src)
+        try_block = src.split("_try_apt_install_python312() {", 1)[1].split(
+            "ensure_python() {", 1
+        )[0]
+        self.assertIn("ppa:deadsnakes/ppa", try_block)
+        # Must not hide apt failures (was the silent 3.14 install break).
+        self.assertNotIn("apt-get install -y python3.12 python3.12-venv >/dev/null", try_block)
 
     def test_recreates_unsupported_venv(self):
         src = SH.read_text(encoding="utf-8")

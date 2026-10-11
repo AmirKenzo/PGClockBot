@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.1": [
+        "منوی CLI: نصب/آپدیت جدا برای main و dev؛ باکس وضعیت بدون خط عمودی",
+        "نصب Python 3.12: در صورت نبود در apt، افزودن deadsnakes PPA (رفع خطای 3.14)",
+        "ریستور: restore/pre-v0.3.1-v0.3.0",
+    ],
     "0.3.0": [
         "ارتقای پایدار: تیپ کانال توسعه (تا v0.2.59) روی شاخهٔ main به‌عنوان نسخهٔ پایدار منتشر شد",
         "شامل: ناوبری اینلاین، کیف پول credit/debit، کانال main/dev در CLI و پنل، پین Python 3.10–3.12، و بقیهٔ پچ‌های ۰٫۲٫۲۵ تا ۰٫۲٫۵۹",
