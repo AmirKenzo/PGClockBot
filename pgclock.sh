@@ -1111,18 +1111,82 @@ PY
   esac
 }
 
+# Panel venv targets CPython 3.10–3.12 (wheels). 3.13+ often builds from
+# source and stalls/OOMs on small VPS — prefer python3.12 explicitly.
+_python_minor() {
+  local bin="$1"
+  "$bin" -c 'import sys; print(sys.version_info.minor)' 2>/dev/null || echo ""
+}
+
+_python_is_supported() {
+  local bin="$1"
+  local maj min
+  maj="$("$bin" -c 'import sys; print(sys.version_info.major)' 2>/dev/null || echo 0)"
+  min="$(_python_minor "$bin")"
+  [[ "$maj" == "3" && -n "$min" && "$min" -ge 10 && "$min" -le 12 ]]
+}
+
+_try_apt_install_python312() {
+  command -v apt-get >/dev/null 2>&1 || return 1
+  info "Trying to install Python 3.12 for the panel venv…"
+  export DEBIAN_FRONTEND=noninteractive
+  sudo_wrap apt-get update -y >/dev/null 2>&1 || true
+  if sudo_wrap apt-get install -y python3.12 python3.12-venv >/dev/null 2>&1; then
+    command -v python3.12 >/dev/null 2>&1
+    return $?
+  fi
+  return 1
+}
+
 ensure_python() {
-  if ! command -v python3 >/dev/null 2>&1; then
-    err "python3 is not available."
+  # Order: pinned 3.12 → 3.11 → 3.10 → generic python3 only if 3.10–3.12.
+  local candidates=(python3.12 python3.11 python3.10)
+  local c=""
+  SYSTEM_PY=""
+  for c in "${candidates[@]}"; do
+    if command -v "$c" >/dev/null 2>&1 && _python_is_supported "$c"; then
+      SYSTEM_PY="$c"
+      break
+    fi
+  done
+  if [[ -z "$SYSTEM_PY" ]] && command -v python3 >/dev/null 2>&1; then
+    if _python_is_supported python3; then
+      SYSTEM_PY=python3
+    fi
+  fi
+  if [[ -z "$SYSTEM_PY" ]]; then
+    if _try_apt_install_python312 && _python_is_supported python3.12; then
+      SYSTEM_PY=python3.12
+    fi
+  fi
+  if [[ -z "$SYSTEM_PY" ]]; then
+    local have=""
+    if command -v python3 >/dev/null 2>&1; then
+      have=" Detected: python3 $($(command -v python3) -c 'import sys; print("%d.%d" % (sys.version_info.major, sys.version_info.minor))' 2>/dev/null || echo '?')."
+    fi
+    err "Need Python 3.10–3.12 for install (3.12 recommended).${have}"
+    err "On Ubuntu 24.04+: sudo apt install python3.12 python3.12-venv"
+    err "Python 3.13+ often compiles packages from source and hangs on small VPS."
     return 1
   fi
-  SYSTEM_PY=python3
-  ok "Python $($SYSTEM_PY -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+  ok "Python $($SYSTEM_PY -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")') ($SYSTEM_PY)"
 }
 
 ensure_venv() {
+  if [[ -z "${SYSTEM_PY:-}" ]]; then
+    ensure_python || return 1
+  fi
+  # Recreate venv when it was built with an unsupported interpreter (e.g. 3.14).
+  if [[ -x .venv/bin/python ]]; then
+    if ! _python_is_supported .venv/bin/python; then
+      local old_ver
+      old_ver="$(.venv/bin/python -c 'import sys; print("%d.%d" % (sys.version_info.major, sys.version_info.minor))' 2>/dev/null || echo '?')"
+      warn "Existing .venv uses Python ${old_ver} (unsupported) — recreating with $($SYSTEM_PY -c 'import sys; print("%d.%d" % (sys.version_info.major, sys.version_info.minor))')…"
+      rm -rf .venv
+    fi
+  fi
   if [[ ! -d .venv ]]; then
-    info "Creating virtualenv..."
+    info "Creating virtualenv with $SYSTEM_PY…"
     "$SYSTEM_PY" -m venv .venv
     ok "venv created"
   else
@@ -1143,7 +1207,9 @@ ensure_venv() {
     if [[ ! -f "$hash_file" ]]; then
       pip install -U pip wheel -q --disable-pip-version-check --no-input || true
     fi
-    pip install -r requirements.txt -q --disable-pip-version-check --no-input
+    # No -q: weak VPS look "stuck" after venv; show pip progress.
+    info "Installing Python packages (first run can take several minutes)…"
+    pip install -r requirements.txt --disable-pip-version-check --no-input
     if [[ -n "$new_hash" ]]; then
       printf '%s\n' "$new_hash" > "$hash_file"
     fi
