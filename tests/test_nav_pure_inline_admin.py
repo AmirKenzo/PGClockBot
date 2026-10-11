@@ -203,7 +203,50 @@ class LastingStaffReplyTests(unittest.IsolatedAsyncioTestCase):
 
 
 class AnswerStaffNavReopenTests(unittest.IsolatedAsyncioTestCase):
-    async def test_cancel_heals_main_and_reopens_panel(self):
+    async def test_cancel_reopens_panel_silently_without_لغو_شد_heal(self):
+        """Option B: «لغو شد.» + reopen_panel must not send a heal bubble."""
+        from app.bot.nav_chrome import answer_staff_nav
+
+        message = AsyncMock()
+        message.answer = AsyncMock()
+        session = AsyncMock()
+        db_user = MagicMock()
+        state = AsyncMock()
+        reopen = AsyncMock()
+
+        with (
+            patch(
+                "app.bot.nav_chrome.get_all_settings",
+                AsyncMock(return_value={"nav_mode": "inline"}),
+            ),
+            patch(
+                "app.bot.nav_chrome.heal_main_reply",
+                new_callable=AsyncMock,
+            ) as heal,
+            patch(
+                "app.bot.nav_inline.is_bot_panel_message",
+                return_value=True,
+            ),
+        ):
+            await answer_staff_nav(
+                message,
+                session,
+                db_user,
+                text="لغو شد.",
+                classic=MagicMock(),
+                state=state,
+                reopen_panel=reopen,
+                clear_state=True,
+                is_reseller_bot=False,
+                reseller_owner_id=None,
+            )
+
+        heal.assert_not_awaited()
+        message.answer.assert_not_awaited()
+        state.clear.assert_awaited()
+        reopen.assert_awaited()
+
+    async def test_non_cancel_text_still_heals_when_reopening(self):
         from app.bot.nav_chrome import answer_staff_nav
 
         message = AsyncMock()
@@ -223,12 +266,16 @@ class AnswerStaffNavReopenTests(unittest.IsolatedAsyncioTestCase):
                 "app.bot.menu_nav.build_main_reply_keyboard",
                 AsyncMock(return_value=(main_kb, {}, "admin")),
             ),
+            patch(
+                "app.bot.nav_inline.is_bot_panel_message",
+                return_value=False,
+            ),
         ):
             await answer_staff_nav(
                 message,
                 session,
                 db_user,
-                text="لغو شد.",
+                text="کیبورد اصلی بازیابی شد.",
                 classic=MagicMock(),
                 state=state,
                 reopen_panel=reopen,
@@ -239,7 +286,6 @@ class AnswerStaffNavReopenTests(unittest.IsolatedAsyncioTestCase):
 
         message.answer.assert_awaited()
         self.assertIs(message.answer.await_args.kwargs.get("reply_markup"), main_kb)
-        state.clear.assert_awaited()
         reopen.assert_awaited()
 
 

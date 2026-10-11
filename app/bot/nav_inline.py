@@ -1204,6 +1204,7 @@ def miniapp_reply_button(ui: dict | None = None):
     from aiogram.types import KeyboardButton, WebAppInfo
 
     from app.config import get_settings
+    from app.services.rich_text import button_icon_from_ui
     from app.services.users import current_shop_reseller_id
 
     if current_shop_reseller_id():
@@ -1219,4 +1220,8 @@ def miniapp_reply_button(ui: dict | None = None):
     if "miniapp" not in _menu_order(ui):
         return None
     text = (_t(ui, "btn_miniapp") or "📱 مینی‌اپ").strip() or "📱 مینی‌اپ"
-    return KeyboardButton(text=text[:64], web_app=WebAppInfo(url=url))
+    kwargs: dict = {"text": text[:64], "web_app": WebAppInfo(url=url)}
+    icon = button_icon_from_ui(ui, label_key="btn_miniapp", action="miniapp")
+    if icon:
+        kwargs["icon_custom_emoji_id"] = str(icon)
+    return KeyboardButton(**kwargs)

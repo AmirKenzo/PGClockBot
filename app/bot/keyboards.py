@@ -701,16 +701,17 @@ def miniapp_inline_keyboard(
     if not view and "miniapp" not in _menu_order(ui):
         return None
     text = (label or _t(ui, "btn_miniapp") or "📱 مینی‌اپ").strip() or "📱 مینی‌اپ"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=text[:64],
-                    web_app=WebAppInfo(url=url),
-                )
-            ]
-        ]
-    )
+    # Prefer _ikb so premium btn_miniapp icons survive (same as reply keyboard).
+    if label is None:
+        btn = _ikb(
+            text[:64],
+            web_app=WebAppInfo(url=url),
+            ui=ui,
+            label_key="btn_miniapp",
+        )
+    else:
+        btn = InlineKeyboardButton(text=text[:64], web_app=WebAppInfo(url=url))
+    return InlineKeyboardMarkup(inline_keyboard=[[btn]])
 
 
 def miniapp_reseller_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup | None:
@@ -1047,9 +1048,9 @@ def wholesale_plans_keyboard(
     plans: list[Plan],
     ui: dict | None = None,
     *,
-    back_callback: str = "shop:kind:wholesale",
+    back_callback: str = "shop:list",
 ) -> InlineKeyboardMarkup:
-    """Wholesale plan names — per-plan color override, else wholesale kind."""
+    """Wholesale plan names — Back returns to shop kind hub (not this screen)."""
     rows = [
         [
             _ikb(
