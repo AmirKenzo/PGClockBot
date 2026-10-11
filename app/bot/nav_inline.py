@@ -1201,32 +1201,9 @@ def services_list_keyboard(
 
 
 def miniapp_reply_button(ui: dict | None = None):
-    """KeyboardButton with web_app for the stable main ReplyKeyboard (platform bot).
+    """Deprecated: ReplyKeyboard web_app leaves initData empty (Telegram design).
 
-    Do **not** set ``icon_custom_emoji_id`` on web_app KeyboardButtons: some
-    Telegram clients open the sheet without ``initData`` when that field is set
-    (MenuButtonWebApp beside the composer still works). Label uses
-    ``button_display_text`` (plain text only — no premium icon field).
+    Kept as a stub returning ``None`` so callers fall through to the text-button
+    + inline web_app flow (see ``REPLY_ACTION_MINIAPP`` / ``miniapp_inline_keyboard``).
     """
-    from aiogram.types import KeyboardButton, WebAppInfo
-
-    from app.config import get_settings
-    from app.services.rich_text import button_display_text
-    from app.services.users import current_shop_reseller_id
-
-    if current_shop_reseller_id():
-        return None
-    settings = get_settings()
-    if not settings.miniapp_enabled:
-        return None
-    # Same canonical URL as MenuButtonWebApp (chat_menu.sync_telegram_menu_button).
-    url = (settings.miniapp_url or "").strip()
-    if not url.startswith("https://"):
-        return None
-    from app.bot.keyboards import _menu_order
-
-    if "miniapp" not in _menu_order(ui):
-        return None
-    raw = (ui or {}).get("btn_miniapp") if ui else None
-    text = (button_display_text(raw) if raw else "").strip() or "📱 مینی‌اپ"
-    return KeyboardButton(text=text[:64], web_app=WebAppInfo(url=url))
+    return None

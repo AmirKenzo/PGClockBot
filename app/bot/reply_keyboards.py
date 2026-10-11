@@ -71,6 +71,7 @@ REPLY_ACTION_BACK = _k.REPLY_ACTION_BACK
 REPLY_ACTION_CREDS = _k.REPLY_ACTION_CREDS
 REPLY_ACTION_HOME = _k.REPLY_ACTION_HOME
 REPLY_ACTION_LOYALTY = _k.REPLY_ACTION_LOYALTY
+REPLY_ACTION_MINIAPP = _k.REPLY_ACTION_MINIAPP
 REPLY_ACTION_LOY_HISTORY = _k.REPLY_ACTION_LOY_HISTORY
 REPLY_ACTION_LOY_POINTS = _k.REPLY_ACTION_LOY_POINTS
 REPLY_ACTION_LOY_REFERRAL = _k.REPLY_ACTION_LOY_REFERRAL
@@ -153,7 +154,8 @@ def _reply_user_entries(
 
     ``reseller_apply`` appears on the main KB when enabled (platform bot only;
     callers pass ``show_reseller_apply=False`` on shop bots). Also still on
-    support inline. Mini App is a web_app KeyboardButton on the main KB.
+    support inline. Mini App is a normal text reply action (opens via inline
+    web_app — ReplyKeyboard web_app has empty initData by Telegram design).
     """
     entries: list[tuple[str, str]] = []
     for key in _menu_order(ui):
@@ -178,8 +180,9 @@ def _reply_user_entries(
                     )
                 )
         elif key == "miniapp":
-            # web_app KeyboardButton — packed specially in _pack_reply_rows
-            entries.append(("miniapp", _t(ui, "btn_miniapp") or "📱 مینی‌اپ"))
+            entries.append(
+                (_k.REPLY_ACTION_MINIAPP, _t(ui, "btn_miniapp") or "📱 مینی‌اپ")
+            )
         elif key == "services" and not has_services:
             continue
     if role == Role.RESELLER.value:
@@ -633,11 +636,26 @@ def _topup_method_entries(ui: dict | None = None) -> list[tuple[str, str]]:
 
 
 def _pack_reply_button(action: str, text: str, ui: dict | None) -> KeyboardButton | None:
-    """Build one reply button; Mini App uses web_app (no text-message action)."""
-    if action == "miniapp":
-        from app.bot.nav_inline import miniapp_reply_button
+    """Build one reply button.
 
-        return miniapp_reply_button(ui)
+    Mini App must be a normal text button (not KeyboardButton.web_app): Telegram
+    leaves ``initData`` empty for reply-keyboard web_app launches. The reply
+    handler then sends an inline web_app button (which does receive initData).
+    """
+    if action in {"miniapp", getattr(_k, "REPLY_ACTION_MINIAPP", "miniapp")}:
+        from app.config import get_settings
+        from app.services.users import current_shop_reseller_id
+
+        if current_shop_reseller_id():
+            return None
+        settings = get_settings()
+        if not settings.miniapp_enabled:
+            return None
+        url = (settings.miniapp_url or "").strip()
+        if not url.startswith("https://"):
+            return None
+        label = (text or "").strip() or "📱 مینی‌اپ"
+        return _kb(label, action=_k.REPLY_ACTION_MINIAPP, ui=ui)
     if not (text or "").strip():
         return None
     return _kb(text, action=action, ui=ui)
@@ -1029,8 +1047,6 @@ def reply_action_map(
             show_reseller_apply=apply_on_main,
             profile=profile if show_reseller_creds else None,
         ):
-            if key == "miniapp":
-                continue
             mapping[(text or "").strip()] = key
         admin_label = (_t(ui, "btn_admin") or "").strip()
         if admin_label:
@@ -1051,8 +1067,6 @@ def reply_action_map(
             show_reseller_apply=apply_on_main and map_role == Role.USER.value,
             profile=profile if (show_reseller_creds and not is_reseller_bot) else None,
         ):
-            if key == "miniapp":
-                continue  # web_app button — no text action
             mapping[(text or "").strip()] = key
         # Legacy: reseller-apply label stays mapped even when omitted from main KB
         if map_role == Role.USER.value and not show_reseller_creds:

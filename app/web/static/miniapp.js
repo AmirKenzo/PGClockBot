@@ -1113,11 +1113,16 @@
       root.textContent = "";
       const err = document.createElement("div");
       err.className = "error";
+      const msg = String(e.message || e);
       err.appendChild(
-        document.createTextNode("برای استفاده ابتدا ربات را /start کنید.")
+        document.createTextNode(
+          msg === "no initData"
+            ? "مینی‌اپ را از دکمهٔ Open کنار چت، یا از دکمهٔ اینلاین داخل ربات باز کنید (نه مستقیم از کیبورد پایین قدیمی)."
+            : "برای استفاده ابتدا ربات را /start کنید."
+        )
       );
       err.appendChild(document.createElement("br"));
-      err.appendChild(document.createTextNode(String(e.message || e)));
+      err.appendChild(document.createTextNode(msg));
       root.appendChild(err);
       navEl.innerHTML = "";
       syncTelegramBackButton();
