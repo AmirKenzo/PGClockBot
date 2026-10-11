@@ -97,17 +97,17 @@
     <div class="form-row" id="edit-duration-field">
       <label class="form-field">مدت اشتراک (روز)
         <input name="duration_days" type="number" min="0" value="{{ plan.duration_days or 0 }}" />
-        <small class="muted">۰ = بدون محدودیت زمان روی اشتراک محلی</small>
+        <small class="muted">۰ = زمان نامحدود (بدون انقضای اشتراک)</small>
       </label>
     </div>
     <div class="form-row" id="edit-included-fields" {% if is_system_plan %}hidden{% endif %}>
       <label class="form-field">حجم پایه (گیگ)
         <input name="included_gb" type="number" min="0" value="{{ plan.included_gb or 0 }}" {% if is_system_plan %}readonly{% endif %} />
-        {% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.account_data_limit %}<small class="muted">سقف هر پلن: {{ pg_limit_snapshot.account_data_limit | bytes }}</small>{% endif %}
+        <small class="muted">۰ = سقف حجم از این پلن اعمال نمی‌شود (نامحدود/حفظ وضعیت فعلی){% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.account_data_limit %} — سقف ادمین اصلی: {{ pg_limit_snapshot.account_data_limit | bytes }}{% endif %}</small>
       </label>
       <label class="form-field">کاربر پایه
         <input name="included_users" type="number" min="0" value="{{ plan.included_users or 0 }}" {% if is_system_plan %}readonly{% endif %} />
-        {% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.max_users %}<small class="muted">سقف هر پلن: {{ pg_limit_snapshot.max_users }} کاربر</small>{% endif %}
+        <small class="muted">۰ = سقف کاربر از این پلن اعمال نمی‌شود{% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.max_users %} — سقف ادمین اصلی: {{ pg_limit_snapshot.max_users }} کاربر{% endif %}</small>
       </label>
     </div>
     {% if is_system_plan %}
