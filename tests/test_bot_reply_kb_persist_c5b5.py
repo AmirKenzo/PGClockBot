@@ -109,7 +109,8 @@ class SourceContractTests(unittest.TestCase):
         src = (ROOT / "app/bot/handlers/start.py").read_text(encoding="utf-8")
         self.assertIn("attach_reply_keyboard", src)
         self.assertNotIn("ephemeral=True", src)
-        self.assertIn("send_reply_keyboard_last", src)
+        # Home no longer dual-sends via send_reply_keyboard_last (mini on welcome).
+        self.assertNotIn("send_reply_keyboard_last", src)
 
 
 if __name__ == "__main__":

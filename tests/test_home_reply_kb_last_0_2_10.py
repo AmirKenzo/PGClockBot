@@ -86,8 +86,8 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(call.kwargs.get("reply_markup"), main_kb)
         seed.assert_not_awaited()
 
-    async def test_render_home_with_miniapp_uses_send_reply_keyboard_last(self):
-        """Mini ahead + welcome with ReplyKeyboard last — no ⌨️ filler seed."""
+    async def test_render_home_with_miniapp_on_welcome_no_filler_seed(self):
+        """Welcome carries Mini App inline; no second ⌨️ / blank seed message."""
         from app.bot.handlers.start import render_home
         from app.db.models import Role
 
@@ -139,10 +139,6 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
                 return_value=mini_kb,
             ),
             patch(
-                "app.bot.tg_utils.send_reply_keyboard_last",
-                new=AsyncMock(),
-            ) as send_last,
-            patch(
                 "app.bot.handlers.start.seed_main_reply_kb",
                 new=AsyncMock(),
             ) as seed,
@@ -158,15 +154,13 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
                 ui=ui,
                 effective_role="user",
                 is_reseller_bot=False,
+                seed_reply_kb=True,
             )
 
-        message.answer.assert_not_awaited()
-        send_last.assert_awaited_once()
-        self.assertEqual(send_last.await_args.args[1], "HOME_TEXT")
-        self.assertIs(send_last.await_args.args[2], main_kb)
-        ahead = send_last.await_args.kwargs["ahead"]
-        self.assertEqual(ahead[0][1], mini_kb)
-        self.assertNotIn("⌨️", ahead[0][0])
+        message.answer.assert_awaited_once()
+        call = message.answer.await_args
+        self.assertEqual(call.args[0], "HOME_TEXT")
+        self.assertIs(call.kwargs.get("reply_markup"), mini_kb)
         seed.assert_not_awaited()
 
     async def test_render_home_without_mini_still_attaches_reply(self):
@@ -230,12 +224,14 @@ class HomeReplySourceGuards(unittest.TestCase):
         from app.bot.handlers import start
 
         src = inspect.getsource(start.render_home)
-        self.assertIn("send_reply_keyboard_last", src)
+        self.assertNotIn("send_reply_keyboard_last", src)
         self.assertIn("miniapp_inline_keyboard", src)
         self.assertIn("if not is_reseller_bot:", src)
         self.assertNotIn('effective_role not in {"admin", "reseller"}', src)
+        self.assertIn("message.answer(text, reply_markup=mini_markup", src)
         self.assertIn("message.answer(text, reply_markup=reply_kb", src)
         self.assertNotIn('await message.answer("📱"', src)
+        self.assertNotIn("_miniapp_ahead_text", src)
         self.assertNotIn('tip: str = "⌨️"', inspect.getsource(start.seed_main_reply_kb))
         seed = inspect.getsource(start.seed_main_reply_kb)
         self.assertIn("attach_reply_keyboard", seed)
