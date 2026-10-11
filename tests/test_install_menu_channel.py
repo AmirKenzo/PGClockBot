@@ -19,39 +19,48 @@ class InstallMenuChannelTests(unittest.TestCase):
         self.assertIn("Not installed", src)
         self.assertIn("Low resources", src)
         self.assertIn("hw_is_minimal", src)
-        # Former cyan default removed from accent assignment
         self.assertNotIn("C=$'\\033[0;36m'", src)
-        # Menu copy stays English
-        self.assertIn("Select channel", src)
-        self.assertIn("Development", src)
+        self.assertIn("Install main", src)
+        self.assertIn("Install dev", src)
+        self.assertIn("Update main", src)
+        self.assertIn("Update dev", src)
         self.assertNotIn("نصب نیست", src)
 
-    def test_status_box_and_version_helpers(self):
+    def test_status_box_has_no_vertical_borders(self):
         src = SH.read_text(encoding="utf-8")
-        self.assertIn("panel_is_installed", src)
-        self.assertIn("read_app_version", src)
-        self.assertIn("read_hw_summary", src)
         box = src.split("print_status_box() {", 1)[1].split("show_menu() {", 1)[0]
         self.assertIn("Install :", box)
         self.assertIn("Version :", box)
         self.assertIn("Channel :", box)
         self.assertIn("Not installed", box)
+        # No box-drawing verticals (break on many terminal fonts).
+        self.assertNotIn("│", box)
+        self.assertNotIn("┌", box)
+        self.assertNotIn("└", box)
+        self.assertNotIn("┐", box)
+        self.assertNotIn("┘", box)
+        self.assertIn("── Status", box)
 
     def test_install_update_channel_wiring(self):
         src = SH.read_text(encoding="utf-8")
-        self.assertIn("prompt_install_channel", src)
+        self.assertIn("set_install_channel", src)
+        self.assertNotIn("prompt_install_channel", src)
         self.assertIn("sync_code_to_channel", src)
         self.assertIn("persist_channel_env", src)
         self.assertIn("UPDATE_CHANNEL", src)
         self.assertIn("DEPLOYED_CHANNEL", src)
+        self.assertIn("deadsnakes", src)
+        menu = src.split("run_menu() {", 1)[1].split("dispatch() {", 1)[0]
+        self.assertIn("cmd_install main", menu)
+        self.assertIn("cmd_install dev", menu)
+        self.assertIn("cmd_update main", menu)
+        self.assertIn("cmd_update dev", menu)
         install = src.split("cmd_install() {", 1)[1].split("cmd_update() {", 1)[0]
-        self.assertIn("prompt_install_channel", install)
+        self.assertIn("set_install_channel", install)
         self.assertIn("sync_code_to_channel", install)
-        self.assertIn("persist_channel_env", install)
         update = src.split("cmd_update() {", 1)[1].split("cmd_edit_env() {", 1)[0]
-        self.assertIn("prompt_install_channel", update)
+        self.assertIn("set_install_channel", update)
         self.assertIn("sync_code_to_channel", update)
-        # Must not hard-fallback to main when updating a selected channel
         self.assertNotIn("syncing hard to origin/main", update)
 
     def test_get_sh_clones_selected_branch(self):

@@ -1130,14 +1130,25 @@ _python_is_supported() {
 }
 
 _try_apt_install_python312() {
+  # Distro may only ship 3.13/3.14 (e.g. newer Ubuntu). Prefer archive 3.12,
+  # then deadsnakes PPA. Never swallow apt errors — operators need the reason.
   command -v apt-get >/dev/null 2>&1 || return 1
-  info "Trying to install Python 3.12 for the panel venv…"
   export DEBIAN_FRONTEND=noninteractive
-  sudo_wrap apt-get update -y >/dev/null 2>&1 || true
-  if sudo_wrap apt-get install -y python3.12 python3.12-venv >/dev/null 2>&1; then
-    command -v python3.12 >/dev/null 2>&1
-    return $?
+  info "Trying to install Python 3.12 for the panel venv…"
+  sudo_wrap apt-get update -y || true
+  if sudo_wrap apt-get install -y python3.12 python3.12-venv; then
+    command -v python3.12 >/dev/null 2>&1 && return 0
   fi
+  warn "python3.12 not in default apt — trying deadsnakes PPA…"
+  sudo_wrap apt-get install -y software-properties-common ca-certificates gnupg || true
+  if sudo_wrap add-apt-repository -y ppa:deadsnakes/ppa; then
+    sudo_wrap apt-get update -y || true
+    if sudo_wrap apt-get install -y python3.12 python3.12-venv python3.12-dev; then
+      command -v python3.12 >/dev/null 2>&1 && return 0
+    fi
+  fi
+  err "Could not install python3.12 automatically."
+  err "Manual: sudo add-apt-repository -y ppa:deadsnakes/ppa && sudo apt update && sudo apt install -y python3.12 python3.12-venv"
   return 1
 }
 
@@ -1168,7 +1179,7 @@ ensure_python() {
       have=" Detected: python3 $($(command -v python3) -c 'import sys; print("%d.%d" % (sys.version_info.major, sys.version_info.minor))' 2>/dev/null || echo '?')."
     fi
     err "Need Python 3.10–3.12 for install (3.12 recommended).${have}"
-    err "On Ubuntu 24.04+: sudo apt install python3.12 python3.12-venv"
+    err "Try: sudo add-apt-repository -y ppa:deadsnakes/ppa && sudo apt update && sudo apt install -y python3.12 python3.12-venv"
     err "Python 3.13+ often compiles packages from source and hangs on small VPS."
     return 1
   fi
@@ -1286,44 +1297,14 @@ normalize_channel() {
   esac
 }
 
-# INSTALL_CHANNEL is set by prompt_install_channel / env (main|dev).
-prompt_install_channel() {
-  # Prefer explicit env (non-interactive / get.sh).
-  local from_env="${PGCLOCK_CHANNEL:-${PGCLOCK_BRANCH:-}}"
-  if [[ -n "$from_env" ]]; then
-    INSTALL_CHANNEL="$(normalize_channel "$from_env")"
-    ok "Update channel: ${INSTALL_CHANNEL}"
-    return 0
+# INSTALL_CHANNEL is set by menu (install-main/install-dev) or env.
+set_install_channel() {
+  local raw="${1:-}"
+  if [[ -z "$raw" ]]; then
+    raw="${PGCLOCK_CHANNEL:-${PGCLOCK_BRANCH:-main}}"
   fi
-  local default_ch
-  default_ch="$(normalize_channel "$(env_get DEPLOYED_CHANNEL "$(env_get UPDATE_CHANNEL main)")")"
-  if [[ ! -r /dev/tty ]]; then
-    INSTALL_CHANNEL="$default_ch"
-    ok "Update channel: ${INSTALL_CHANNEL} (non-interactive)"
-    return 0
-  fi
-  step "Update channel"
-  printf '    %s1%s) Stable       — branch main (recommended)\n' "$B" "$N" > /dev/tty
-  printf '    %s2%s) Development  — branch dev (newer, may be unstable)\n' "$B" "$N" > /dev/tty
-  local choice=""
-  while true; do
-    prompt_read choice "  ${B}Select channel${N} ${D}[${default_ch}]${N}: "
-    choice="${choice:-$default_ch}"
-    case "$choice" in
-      1|main|stable|s) INSTALL_CHANNEL="main"; break ;;
-      2|dev|development|d) INSTALL_CHANNEL="dev"; break ;;
-      *)
-        if [[ "$(normalize_channel "$choice")" == "dev" ]]; then
-          INSTALL_CHANNEL="dev"; break
-        fi
-        if [[ "$(normalize_channel "$choice")" == "main" && "$choice" != "" ]]; then
-          INSTALL_CHANNEL="main"; break
-        fi
-        err "Choose 1 (main) or 2 (dev)."
-        ;;
-    esac
-  done
-  ok "Update channel: ${INSTALL_CHANNEL}"
+  INSTALL_CHANNEL="$(normalize_channel "$raw")"
+  ok "Channel: ${INSTALL_CHANNEL}"
 }
 
 persist_channel_env() {
@@ -1535,7 +1516,9 @@ restart_service_if_any() {
 
 # ── actions ─────────────────────────────────────────────
 cmd_install() {
-  banner_small "Install"
+  # Optional $1 = main|dev (menu passes this; env PGCLOCK_CHANNEL is fallback).
+  set_install_channel "${1:-}"
+  banner_small "Install (${INSTALL_CHANNEL})"
   require_ubuntu_22_plus || return 1
   ensure_apt_packages || return 1
   ensure_python || return 1
@@ -1556,9 +1539,7 @@ cmd_install() {
   INSTALL_SSL_MODE="none"
   INSTALL_SSL_DOMAIN=""
   INSTALL_SSL_EMAIL=""
-  INSTALL_CHANNEL="main"
 
-  prompt_install_channel || return 1
   sync_code_to_channel "$INSTALL_CHANNEL" || return 1
   # Re-resolve interpreter after possible channel sync (venv may need recreate).
   ensure_python || return 1
@@ -1784,7 +1765,9 @@ PY
 }
 
 cmd_update() {
-  banner_small "Update"
+  # Optional $1 = main|dev (menu passes this; env PGCLOCK_CHANNEL is fallback).
+  set_install_channel "${1:-}"
+  banner_small "Update (${INSTALL_CHANNEL})"
   if [[ ! -f .env ]]; then
     err ".env not found. Run Install first."
     return 1
@@ -1793,8 +1776,6 @@ cmd_update() {
   cp -a .env ".env.bak.$(date +%Y%m%d%H%M%S)"
   ok ".env backup created"
 
-  INSTALL_CHANNEL="main"
-  prompt_install_channel || return 1
   sync_code_to_channel "$INSTALL_CHANNEL" || return 1
   persist_channel_env "$INSTALL_CHANNEL"
 
@@ -2210,8 +2191,10 @@ cmd_help() {
 
   Usage:
     bash pgclock.sh                 Interactive menu
-    bash pgclock.sh install         Install (channel via prompt or env)
-    bash pgclock.sh update          Update code + deps (channel selectable)
+    bash pgclock.sh install main    Install stable (main)
+    bash pgclock.sh install dev     Install development (dev)
+    bash pgclock.sh update main     Update from origin/main
+    bash pgclock.sh update dev      Update from origin/dev
     bash pgclock.sh env             Edit .env
     bash pgclock.sh web             Web panel tools
     bash pgclock.sh service         systemd controls
@@ -2220,9 +2203,10 @@ cmd_help() {
     bash pgclock.sh uninstall       Remove service / data
     bash pgclock.sh help            This help
 
-  Channel (stable=main · development=dev):
-    PGCLOCK_CHANNEL=dev bash pgclock.sh install
-    PGCLOCK_BRANCH=dev  bash get.sh
+  Channel shortcuts:
+    bash pgclock.sh install-dev
+    bash pgclock.sh update-dev
+    PGCLOCK_BRANCH=dev bash get.sh
 
   Global CLI (after install):
     pgclock status|start|stop|restart|logs|health
@@ -2294,13 +2278,14 @@ print_status_box() {
   fi
   read -r mem_mib cores <<<"$(read_hw_summary)"
   {
-    printf '  %s┌─ Status ─────────────────────────────────┐%s\n' "$DIM_LINE" "$N"
-    printf '  %s│%s  Install : %s%-28s%s %s│%s\n' "$DIM_LINE" "$N" "$B" "$install_state" "$N" "$DIM_LINE" "$N"
-    printf '  %s│%s  Version : %s%-28s%s %s│%s\n' "$DIM_LINE" "$N" "$B" "v${ver}" "$N" "$DIM_LINE" "$N"
-    printf '  %s│%s  Channel : %s%-28s%s %s│%s\n' "$DIM_LINE" "$N" "$B" "$channel" "$N" "$DIM_LINE" "$N"
-    printf '  %s│%s  Service : %s%-28s%s %s│%s\n' "$DIM_LINE" "$N" "$B" "$service_state" "$N" "$DIM_LINE" "$N"
-    printf '  %s│%s  Host    : %s%-28s%s %s│%s\n' "$DIM_LINE" "$N" "$D" "${mem_mib} MiB RAM · ${cores} CPU" "$N" "$DIM_LINE" "$N"
-    printf '  %s└──────────────────────────────────────────┘%s\n' "$DIM_LINE" "$N"
+    # Horizontal rules only — no vertical box borders (TTY fonts break them).
+    printf '  %s── Status ──────────────────────────────%s\n' "$DIM_LINE" "$N"
+    printf '  Install : %s%s%s\n' "$B" "$install_state" "$N"
+    printf '  Version : %sv%s%s\n' "$B" "$ver" "$N"
+    printf '  Channel : %s%s%s\n' "$B" "$channel" "$N"
+    printf '  Service : %s%s%s\n' "$B" "$service_state" "$N"
+    printf '  Host    : %s%s MiB RAM · %s CPU%s\n' "$D" "$mem_mib" "$cores" "$N"
+    printf '  %s────────────────────────────────────────%s\n' "$DIM_LINE" "$N"
     echo ""
   } > /dev/tty
   if hw_is_minimal; then
@@ -2320,14 +2305,16 @@ show_menu() {
   {
     printf '  %sMenu%s\n' "$O" "$N"
     printf '  %s────%s\n' "$DIM_LINE" "$N"
-    printf '  %s1)%s  Install     Fresh install → finish in /setup wizard\n' "$O" "$N"
-    printf '  %s2)%s  Update      Pull channel tip (keep .env + data)\n' "$O" "$N"
-    printf '  %s3)%s  Edit .env   Tokens, panel URL, ports\n' "$O" "$N"
-    printf '  %s4)%s  Web panel   URL, password reset, health\n' "$O" "$N"
-    printf '  %s5)%s  Service     Status / restart / logs\n' "$O" "$N"
-    printf '  %s6)%s  Status      Quick health overview\n' "$O" "$N"
-    printf '  %s7)%s  Doctor      Read-only diagnostics (OK/WARN/FAIL)\n' "$O" "$N"
-    printf '  %s8)%s  Uninstall   Remove EVERYTHING (full wipe)\n' "$O" "$N"
+    printf '  %s1)%s  Install main   Stable channel (recommended)\n' "$O" "$N"
+    printf '  %s2)%s  Install dev    Development channel\n' "$O" "$N"
+    printf '  %s3)%s  Update main    Pull origin/main (keep .env)\n' "$O" "$N"
+    printf '  %s4)%s  Update dev     Pull origin/dev (keep .env)\n' "$O" "$N"
+    printf '  %s5)%s  Edit .env      Tokens, panel URL, ports\n' "$O" "$N"
+    printf '  %s6)%s  Web panel      URL, password reset, health\n' "$O" "$N"
+    printf '  %s7)%s  Service        Status / restart / logs\n' "$O" "$N"
+    printf '  %s8)%s  Status         Quick health overview\n' "$O" "$N"
+    printf '  %s9)%s  Doctor         Read-only diagnostics (OK/WARN/FAIL)\n' "$O" "$N"
+    printf '  %s10)%s Uninstall      Remove EVERYTHING (full wipe)\n' "$O" "$N"
     printf '  %s0)%s  Exit\n' "$O" "$N"
     echo ""
   } > /dev/tty
@@ -2339,14 +2326,19 @@ run_menu() {
     local choice=""
     prompt_read choice "  ${B}Select option${N}: "
     case "${choice}" in
-      1|install|i) cmd_install ; pause ;;
-      2|update|u)  cmd_update  ; pause ;;
-      3|env|edit)  cmd_edit_env ; pause ;;
-      4|web)       cmd_web_panel ;;
-      5|service)   cmd_service ;;
-      6|status)    cmd_status ; pause ;;
-      7|doctor)    cmd_doctor ; pause ;;
-      8|uninstall) cmd_uninstall ; pause ;;
+      1|install-main|install_main) cmd_install main ; pause ;;
+      2|install-dev|install_dev)   cmd_install dev  ; pause ;;
+      3|update-main|update_main)   cmd_update main  ; pause ;;
+      4|update-dev|update_dev)     cmd_update dev   ; pause ;;
+      5|env|edit)  cmd_edit_env ; pause ;;
+      6|web)       cmd_web_panel ;;
+      7|service)   cmd_service ;;
+      8|status)    cmd_status ; pause ;;
+      9|doctor)    cmd_doctor ; pause ;;
+      10|uninstall) cmd_uninstall ; pause ;;
+      # Back-compat shortcuts
+      install|i) cmd_install main ; pause ;;
+      update|u)  cmd_update main  ; pause ;;
       0|exit|q|quit)
         echo ""
         ok "Bye."
@@ -2364,10 +2356,15 @@ run_menu() {
 
 dispatch() {
   local cmd="${1:-}"
+  local arg="${2:-}"
   case "${cmd}" in
     ""|menu)       run_menu ;;
-    install|i)     cmd_install ;;
-    update|u)      cmd_update ;;
+    install|i)     cmd_install "${arg:-main}" ;;
+    install-main|install_main) cmd_install main ;;
+    install-dev|install_dev)   cmd_install dev ;;
+    update|u)      cmd_update "${arg:-main}" ;;
+    update-main|update_main)   cmd_update main ;;
+    update-dev|update_dev)     cmd_update dev ;;
     env|edit|edit-env|dotenv) cmd_edit_env ;;
     web|panel|web-panel) cmd_web_panel ;;
     service|svc)   cmd_service ;;
