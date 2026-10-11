@@ -1,4 +1,4 @@
-"""Miniapp premium icon + settings Back hub + silent cancel heal."""
+"""Miniapp reply→inline open path + settings Back hub + silent cancel heal."""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ from aiogram.types import MessageEntity
 from app.services.rich_text import pack_rich_text
 
 
-class MiniappPremiumIconTests(unittest.TestCase):
-    def test_reply_web_app_button_keeps_text_without_icon_custom_emoji(self):
-        """ReplyKeyboard web_app must not set icon_custom_emoji_id (initData)."""
-        from app.bot.nav_inline import miniapp_reply_button
+class MiniappReplyViaInlineTests(unittest.TestCase):
+    def test_reply_pack_uses_text_button_not_web_app(self):
+        """Reply KB miniapp must be text (Telegram: reply web_app ⇒ empty initData)."""
+        from app.bot.keyboards import REPLY_ACTION_MINIAPP
+        from app.bot.reply_keyboards import _pack_reply_button
 
         body = "📱 مینی‌اپ"
         packed = pack_rich_text(
@@ -44,14 +45,18 @@ class MiniappPremiumIconTests(unittest.TestCase):
                 ),
             ),
         ):
-            btn = miniapp_reply_button(ui)
+            btn = _pack_reply_button(REPLY_ACTION_MINIAPP, "مینی‌اپ من", ui)
         self.assertIsNotNone(btn)
-        self.assertIsNone(getattr(btn, "icon_custom_emoji_id", None))
-        self.assertEqual(btn.text, "📱 مینی‌اپ")
-        self.assertIsNotNone(btn.web_app)
-        self.assertEqual(btn.web_app.url, "https://example.com/miniapp/")
+        self.assertIsNone(getattr(btn, "web_app", None))
+        self.assertEqual(btn.text, "مینی‌اپ من")
 
-    def test_inline_keyboard_sets_icon_for_default_label(self):
+    def test_deprecated_miniapp_reply_button_returns_none(self):
+        from app.bot.nav_inline import miniapp_reply_button
+
+        self.assertIsNone(miniapp_reply_button({"menu_order": "miniapp"}))
+
+    def test_inline_web_app_omits_icon_custom_emoji(self):
+        """Inline web_app must omit icon_custom_emoji_id (initData)."""
         from app.bot.keyboards import miniapp_inline_keyboard
 
         body = "📱 مینی‌اپ"
@@ -84,7 +89,28 @@ class MiniappPremiumIconTests(unittest.TestCase):
             markup = miniapp_inline_keyboard(ui)
         self.assertIsNotNone(markup)
         btn = markup.inline_keyboard[0][0]
-        self.assertEqual(btn.icon_custom_emoji_id, "42")
+        self.assertIsNone(getattr(btn, "icon_custom_emoji_id", None))
+        self.assertIsNotNone(btn.web_app)
+        self.assertNotIn("icon_custom_emoji_id", (btn.model_dump(exclude_none=True) or {}))
+
+    def test_reply_action_map_includes_miniapp(self):
+        from app.bot.keyboards import REPLY_ACTION_MINIAPP
+        from app.bot.reply_keyboards import reply_action_map
+
+        ui = {
+            "btn_miniapp": "مینی تست",
+            "menu_order": "miniapp,shop",
+            "btn_shop": "خرید",
+            "show_miniapp": "1",
+        }
+        mapping = reply_action_map(
+            "user",
+            has_services=False,
+            ui=ui,
+            show_reseller_creds=False,
+            is_reseller_bot=False,
+        )
+        self.assertEqual(mapping.get("مینی تست"), REPLY_ACTION_MINIAPP)
 
 
 class SettingsHubBackTests(unittest.IsolatedAsyncioTestCase):

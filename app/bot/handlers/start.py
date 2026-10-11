@@ -118,7 +118,8 @@ async def render_home(
             ui=ui,
         )
 
-    # Mini App is a web_app button on the main ReplyKeyboard (Option B).
+    # Mini App on the main ReplyKeyboard is a text action → inline web_app
+    # (ReplyKeyboard web_app has empty initData by Telegram design).
     if edit:
         from aiogram.exceptions import TelegramBadRequest
 
