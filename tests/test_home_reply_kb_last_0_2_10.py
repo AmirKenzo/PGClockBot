@@ -12,76 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
-    async def test_render_home_stale_classic_single_message_no_mini_bubble(self):
-        """Option B: classic nav_mode no longer sends a separate Mini App bubble."""
-        from app.bot.handlers.start import render_home
-        from app.db.models import Role
-
-        message = AsyncMock()
-        message.answer = AsyncMock(return_value=MagicMock())
-        session = AsyncMock()
-        db_user = MagicMock()
-        db_user.id = 1
-        db_user.role = Role.USER.value
-        db_user.full_name = "Test"
-        db_user.telegram_id = 123
-        db_user.username = "t"
-        db_user.referred_by_id = None
-
-        ui = {
-            "nav_mode": "classic",
-            "welcome_text": "سلام",
-            "shop_title": "فروشگاه",
-            "menu_order": "shop,miniapp",
-            "btn_menu_home": "🏠 منوی اصلی",
-        }
-        main_kb = MagicMock(name="MAIN_REPLY")
-
-        with (
-            patch(
-                "app.bot.handlers.start.get_all_settings",
-                new=AsyncMock(return_value=ui),
-            ),
-            patch(
-                "app.services.reseller_access.effective_menu_role",
-                new=AsyncMock(return_value="user"),
-            ),
-            patch(
-                "app.services.reseller_access.is_shop_owner_on_main_bot",
-                return_value=False,
-            ),
-            patch(
-                "app.bot.handlers.start._has_services",
-                new=AsyncMock(return_value=False),
-            ),
-            patch(
-                "app.bot.keyboards.main_reply_keyboard",
-                return_value=main_kb,
-            ),
-            patch(
-                "app.bot.keyboards.miniapp_inline_keyboard",
-                return_value=MagicMock(name="SHOULD_NOT_USE"),
-            ),
-            patch(
-                "app.services.rich_text.outbound_setting_text",
-                return_value=("HOME_TEXT", {}),
-            ),
-        ):
-            await render_home(
-                message,
-                session,
-                db_user,
-                ui=ui,
-                effective_role="user",
-                is_reseller_bot=False,
-            )
-
-        self.assertEqual(message.answer.await_count, 1)
-        call = message.answer.await_args
-        self.assertEqual(call.args[0], "HOME_TEXT")
-        self.assertIs(call.kwargs.get("reply_markup"), main_kb)
-
-    async def test_render_home_inline_nav_single_message_no_mini_bubble(self):
+    async def test_render_home_without_miniapp_single_message_reply_kb(self):
+        """When Mini App HTTPS is off, welcome is one message with ReplyKeyboard."""
         from app.bot.handlers.start import render_home
         from app.db.models import Role
 
@@ -100,7 +32,7 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
             "nav_mode": "inline",
             "welcome_text": "سلام",
             "shop_title": "فروشگاه",
-            "menu_order": "shop,miniapp",
+            "menu_order": "shop,wallet",
             "btn_menu_home": "🏠 منوی اصلی",
         }
         main_kb = MagicMock(name="MAIN_REPLY")
@@ -123,13 +55,17 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=False),
             ),
             patch(
-                "app.bot.keyboards.main_reply_keyboard",
-                return_value=main_kb,
+                "app.bot.menu_nav.build_main_reply_keyboard",
+                new=AsyncMock(return_value=(main_kb, ui, "user")),
             ),
             patch(
                 "app.bot.keyboards.miniapp_inline_keyboard",
-                return_value=MagicMock(name="SHOULD_NOT_USE"),
+                return_value=None,
             ),
+            patch(
+                "app.bot.handlers.start.seed_main_reply_kb",
+                new=AsyncMock(),
+            ) as seed,
             patch(
                 "app.services.rich_text.outbound_setting_text",
                 return_value=("HOME_TEXT", {}),
@@ -148,6 +84,81 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
         call = message.answer.await_args
         self.assertEqual(call.args[0], "HOME_TEXT")
         self.assertIs(call.kwargs.get("reply_markup"), main_kb)
+        seed.assert_not_awaited()
+
+    async def test_render_home_with_miniapp_inline_then_seed_reply(self):
+        from app.bot.handlers.start import render_home
+        from app.db.models import Role
+
+        message = AsyncMock()
+        message.answer = AsyncMock(return_value=MagicMock())
+        session = AsyncMock()
+        db_user = MagicMock()
+        db_user.id = 1
+        db_user.role = Role.USER.value
+        db_user.full_name = "Test"
+        db_user.telegram_id = 123
+        db_user.username = "t"
+        db_user.referred_by_id = None
+
+        ui = {
+            "nav_mode": "inline",
+            "welcome_text": "سلام",
+            "shop_title": "فروشگاه",
+            "menu_order": "shop,wallet",
+            "btn_menu_home": "🏠 منوی اصلی",
+        }
+        main_kb = MagicMock(name="MAIN_REPLY")
+        mini_kb = MagicMock(name="MINI_INLINE")
+
+        with (
+            patch(
+                "app.bot.handlers.start.get_all_settings",
+                new=AsyncMock(return_value=ui),
+            ),
+            patch(
+                "app.services.reseller_access.effective_menu_role",
+                new=AsyncMock(return_value="user"),
+            ),
+            patch(
+                "app.services.reseller_access.is_shop_owner_on_main_bot",
+                return_value=False,
+            ),
+            patch(
+                "app.bot.handlers.start._has_services",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "app.bot.menu_nav.build_main_reply_keyboard",
+                new=AsyncMock(return_value=(main_kb, ui, "user")),
+            ),
+            patch(
+                "app.bot.keyboards.miniapp_inline_keyboard",
+                return_value=mini_kb,
+            ),
+            patch(
+                "app.bot.handlers.start.seed_main_reply_kb",
+                new=AsyncMock(),
+            ) as seed,
+            patch(
+                "app.services.rich_text.outbound_setting_text",
+                return_value=("HOME_TEXT", {}),
+            ),
+        ):
+            await render_home(
+                message,
+                session,
+                db_user,
+                ui=ui,
+                effective_role="user",
+                is_reseller_bot=False,
+            )
+
+        self.assertEqual(message.answer.await_count, 1)
+        call = message.answer.await_args
+        self.assertEqual(call.args[0], "HOME_TEXT")
+        self.assertIs(call.kwargs.get("reply_markup"), mini_kb)
+        seed.assert_awaited_once()
 
     async def test_render_home_without_mini_still_attaches_reply(self):
         from app.bot.handlers.start import render_home
@@ -180,8 +191,8 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=False),
             ),
             patch(
-                "app.bot.keyboards.main_reply_keyboard",
-                return_value=main_kb,
+                "app.bot.menu_nav.build_main_reply_keyboard",
+                new=AsyncMock(return_value=(main_kb, ui, "user")),
             ),
             patch(
                 "app.bot.keyboards.miniapp_inline_keyboard",
@@ -206,12 +217,13 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
 
 
 class HomeReplySourceGuards(unittest.TestCase):
-    def test_render_home_one_message_no_send_reply_keyboard_last(self):
+    def test_render_home_welcome_paths_and_seed(self):
         from app.bot.handlers import start
 
         src = inspect.getsource(start.render_home)
-        # Option B: welcome + main KB on one message (no mini-ahead helper)
         self.assertNotIn("send_reply_keyboard_last", src)
+        self.assertIn("miniapp_inline_keyboard", src)
+        self.assertIn("seed_main_reply_kb", src)
         self.assertIn("message.answer(text, reply_markup=reply_kb", src)
         self.assertNotIn('await message.answer("📱"', src)
         seed = inspect.getsource(start.seed_main_reply_kb)
