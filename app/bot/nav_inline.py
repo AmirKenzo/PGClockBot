@@ -1200,11 +1200,17 @@ def services_list_keyboard(
 
 
 def miniapp_reply_button(ui: dict | None = None):
-    """KeyboardButton with web_app for the stable main ReplyKeyboard (platform bot)."""
+    """KeyboardButton with web_app for the stable main ReplyKeyboard (platform bot).
+
+    Do **not** set ``icon_custom_emoji_id`` on web_app KeyboardButtons: some
+    Telegram clients open the sheet without ``initData`` when that field is set
+    (MenuButtonWebApp beside the composer still works). Keep any premium glyph
+    inside the plain ``text`` via ``rich_plain_text`` instead.
+    """
     from aiogram.types import KeyboardButton, WebAppInfo
 
     from app.config import get_settings
-    from app.services.rich_text import button_icon_from_ui
+    from app.services.rich_text import rich_plain_text
     from app.services.users import current_shop_reseller_id
 
     if current_shop_reseller_id():
@@ -1212,6 +1218,7 @@ def miniapp_reply_button(ui: dict | None = None):
     settings = get_settings()
     if not settings.miniapp_enabled:
         return None
+    # Same canonical URL as MenuButtonWebApp (chat_menu.sync_telegram_menu_button).
     url = (settings.miniapp_url or "").strip()
     if not url.startswith("https://"):
         return None
@@ -1219,9 +1226,6 @@ def miniapp_reply_button(ui: dict | None = None):
 
     if "miniapp" not in _menu_order(ui):
         return None
-    text = (_t(ui, "btn_miniapp") or "📱 مینی‌اپ").strip() or "📱 مینی‌اپ"
-    kwargs: dict = {"text": text[:64], "web_app": WebAppInfo(url=url)}
-    icon = button_icon_from_ui(ui, label_key="btn_miniapp", action="miniapp")
-    if icon:
-        kwargs["icon_custom_emoji_id"] = str(icon)
-    return KeyboardButton(**kwargs)
+    raw = (ui or {}).get("btn_miniapp") if ui else None
+    text = (rich_plain_text(raw) if raw else "").strip() or "📱 مینی‌اپ"
+    return KeyboardButton(text=text[:64], web_app=WebAppInfo(url=url))

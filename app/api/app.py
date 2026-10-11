@@ -1084,7 +1084,10 @@ def create_api_app(lifespan=None) -> FastAPI:
             response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        # COOP can interfere with Telegram WebView initData injection on some
+        # clients when the Mini App is opened from a ReplyKeyboard web_app button.
+        if not is_miniapp:
+            response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
         # Panel pages: nonce + transitional unsafe-inline (many page templates still
         # ship inline scripts). Prefer nonce on new scripts; drop unsafe-inline later.
         if not request.url.path.startswith("/static") and not request.url.path.startswith("/media"):
@@ -5115,7 +5118,7 @@ def create_api_app(lifespan=None) -> FastAPI:
                 if content:
                     dest.write_bytes(content)
                     payload[key] = f"uploads/{dest_name}"
-        if tab == "terms" and payload:
+        if tab in {"terms", "buttons"} and payload:
             from app.services.rich_text import merge_rich_settings_on_save
 
             existing = await get_all_settings(session)

@@ -533,32 +533,58 @@ async def set_setting(
     *,
     reseller_id: int | None = None,
 ) -> None:
+    from app.services.reply_label_aliases import (
+        ALIAS_SETTING_KEY,
+        merge_alias_updates_for_payload,
+    )
+    from app.services.rich_text import is_button_label_key
+
     rid = _effective_reseller_id(reseller_id)
+    alias_extra: dict[str, str] | None = None
+    if key != ALIAS_SETTING_KEY and is_button_label_key(key):
+        # Snapshot current UI (incl. prior label) so stale keyboards keep working.
+        existing_ui = await get_all_settings(session, reseller_id=rid)
+        alias_extra = merge_alias_updates_for_payload(
+            existing_ui=existing_ui, payload={key: value}
+        )
+
     if rid:
         from app.db.models import ResellerSetting
 
+        keys = [key] + (list(alias_extra.keys()) if alias_extra else [])
         result = await session.execute(
             select(ResellerSetting).where(
                 ResellerSetting.reseller_user_id == rid,
-                ResellerSetting.key == key,
+                ResellerSetting.key.in_(keys),
             )
         )
-        row = result.scalar_one_or_none()
-        if row:
-            row.value = value
-        else:
-            session.add(
-                ResellerSetting(reseller_user_id=rid, key=key, value=value)
-            )
+        existing = {r.key: r for r in result.scalars().all()}
+        writes = {key: value}
+        if alias_extra:
+            writes.update(alias_extra)
+        for k, v in writes.items():
+            row = existing.get(k)
+            if row:
+                row.value = v
+            else:
+                session.add(
+                    ResellerSetting(reseller_user_id=rid, key=k, value=v)
+                )
         await session.commit()
         clear_settings_cache(rid)
         return
-    result = await session.execute(select(Setting).where(Setting.key == key))
-    row = result.scalar_one_or_none()
-    if row:
-        row.value = value
-    else:
-        session.add(Setting(key=key, value=value))
+    keys = [key] + (list(alias_extra.keys()) if alias_extra else [])
+    result = await session.execute(select(Setting).where(Setting.key.in_(keys)))
+    existing = {r.key: r for r in result.scalars().all()}
+    writes = {key: value}
+    if alias_extra:
+        writes.update(alias_extra)
+    for k, v in writes.items():
+        row = existing.get(k)
+        if row:
+            row.value = v
+        else:
+            session.add(Setting(key=k, value=v))
     await session.commit()
     # Only invalidate platform cache — do not flush isolated shop caches
     clear_settings_cache(0)
@@ -579,6 +605,11 @@ async def set_settings_bulk(
         KEY_GATEWAYS,
         enrich_payment_settings,
     )
+    from app.services.reply_label_aliases import (
+        ALIAS_SETTING_KEY,
+        merge_alias_updates_for_payload,
+    )
+    from app.services.rich_text import is_button_label_key
 
     merged = dict(values)
     if KEY_CARDS in merged or KEY_GATEWAYS in merged or KEY_CRYPTO in merged:
@@ -595,6 +626,13 @@ async def set_settings_bulk(
             if legacy in merged:
                 values[legacy] = merged[legacy]
     rid = _effective_reseller_id(reseller_id)
+    if any(is_button_label_key(k) for k in values if k != ALIAS_SETTING_KEY):
+        existing_ui = await get_all_settings(session, reseller_id=rid)
+        alias_extra = merge_alias_updates_for_payload(
+            existing_ui=existing_ui, payload=values
+        )
+        if alias_extra:
+            values = {**values, **alias_extra}
     keys = list(values.keys())
     if rid:
         from app.db.models import ResellerSetting
@@ -764,6 +802,8 @@ DEFAULT_SETTINGS = {
     "btn_loy_history": "📜 تاریخچه",
     "btn_reseller_apply": "🤝 درخواست نمایندگی",
     "btn_miniapp": "📱 مینی‌اپ",
+    # Internal: previous reply-keyboard labels → action (JSON). Not shown in UI.
+    "reply_btn_label_aliases": "{}",
     "btn_reseller": "🤝 پنل نماینده",
     "btn_reseller_creds": "🔐 اطلاعات ورود پنل و ربات",
     "btn_admin": "🛠 پنل ادمین",
