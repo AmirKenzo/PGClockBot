@@ -93,7 +93,8 @@ class PgclockInstallHintTests(unittest.TestCase):
     def test_banner_shows_dynamic_release_version(self):
         src = Path("pgclock.sh").read_text(encoding="utf-8")
         self.assertIn("read_app_version", src)
-        self.assertIn("Release v", src)
+        self.assertIn("MrClockBot", src)
+        self.assertIn("print_status_box", src)
         self.assertNotIn("One command for everything", src)
 
 
