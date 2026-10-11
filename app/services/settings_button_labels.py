@@ -65,6 +65,7 @@ BTN_SERVICE_ACTIONS: list[Field] = [
     ("btn_renew", "تمدید", "text"),
     ("btn_svc_addon", "حجم / زمان", "text"),
     ("btn_sub_link", "لینک و QR", "text"),
+    ("btn_guides", "آموزش‌ها", "text"),
     ("btn_cancel", "انصراف", "text"),
 ]
 

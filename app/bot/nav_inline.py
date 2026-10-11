@@ -1129,6 +1129,7 @@ def service_card_keyboard(
                 callback_data=f"guide:svc:{sid}",
                 ui=ui,
                 label_key="btn_guides",
+                style=_style(ui, "guides", fallback="primary"),
             ),
         ],
         [

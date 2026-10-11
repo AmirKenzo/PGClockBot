@@ -18,7 +18,8 @@ from app.services.support_contacts import (
 from app.services.users import DEFAULT_SETTINGS, on
 
 # Default order for user menu items (drag-and-drop in web panel edits menu_order)
-# guide/faq removed from keyboard — keep texts available via /help if needed
+# guide/faq removed from keyboard — keep texts available via /help if needed.
+# Connection «آموزش‌ها» lives on the service card (not the main ReplyKeyboard).
 DEFAULT_MENU_ORDER = [
     "shop",
     "services",
@@ -28,6 +29,8 @@ DEFAULT_MENU_ORDER = [
     "reseller_apply",
     "miniapp",
 ]
+# Alias kept for callers that distinguish catalog vs active (same set today).
+DEFAULT_ACTIVE_MENU_ORDER = list(DEFAULT_MENU_ORDER)
 
 # Legacy keys stripped from saved menu_order so old installs drop them from the keyboard
 REMOVED_MENU_KEYS = frozenset({"guide", "faq", "restart", "help", "referral"})
