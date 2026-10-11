@@ -6191,9 +6191,8 @@ form.settings-form > .actions.sticky-actions,
 }
 .user-edit-identity {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: var(--space-2);
 }
 .user-edit-name {
@@ -6210,36 +6209,65 @@ form.settings-form > .actions.sticky-actions,
 }
 .user-edit-wallet-pill {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-0);
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-2);
+  width: 100%;
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--bg-elevated, var(--control-bg));
-  min-width: 7.5rem;
-  text-align: right;
   box-sizing: border-box;
 }
-.user-edit-wallet-pill span,
-.user-edit-wallet-pill strong {
-  display: block;
-  width: 100%;
-  text-align: right;
+.user-edit-wallet-pill .user-edit-wallet-label {
+  font-size: 12px;
+  font-weight: 500;
 }
-.user-edit-wallet-pill span {
-  font-size: 11px;
-}
-.user-edit-wallet-pill strong {
-  font-size: 0.95rem;
-}
-/* Numeric pills: isolate digits; Persian unit stays on the visual left via RTL */
-.user-edit-wallet-pill[dir="ltr"] strong,
-.user-edit-wallet-pill .num-ratio {
+.user-edit-wallet-pill .user-edit-wallet-amt {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  /* Digits LTR; unit sits on the visual left in RTL */
   direction: rtl;
   unicode-bidi: isolate;
   text-align: right;
   line-height: 1.35;
+}
+.user-edit-wallet-pill.is-positive {
+  border-color: color-mix(in srgb, var(--ok) 48%, var(--border));
+  background: color-mix(in srgb, var(--ok) 10%, var(--bg-elevated, var(--control-bg)));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.user-edit-wallet-pill.is-positive .user-edit-wallet-amt {
+  color: var(--ok-fg);
+}
+.user-edit-wallet-pill.is-negative {
+  border-color: color-mix(in srgb, var(--destructive) 48%, var(--border));
+  background: color-mix(in srgb, var(--destructive) 10%, var(--bg-elevated, var(--control-bg)));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--destructive) 22%, transparent);
+}
+.user-edit-wallet-pill.is-negative .user-edit-wallet-amt {
+  color: var(--destructive-fg);
+}
+.user-edit-wallet-delete-warn .flash-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.45;
+}
+.user-edit-wallet-delete-warn-amt {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+}
+.user-edit-wallet-delete-warn-note {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.92;
 }
 .user-edit-fields {
   display: grid;
@@ -6273,11 +6301,65 @@ form.settings-form > .actions.sticky-actions,
 .user-edit-fields > .form-field:has(input[name="amount"]) {
   grid-column: 1 / -1;
 }
-.wallet-adjust-modes > .btn {
+/* Tag-like mode chips (same language as .color-tag-option), full control height */
+.wallet-mode-btn {
+  --mode-color: var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
   height: var(--btn-h);
   min-height: var(--btn-h);
+  margin: 0;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--mode-color) 45%, var(--border));
+  background: color-mix(in srgb, var(--mode-color) 12%, var(--bg-elevated, var(--control-bg)));
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
   box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.wallet-mode-btn--credit { --mode-color: var(--ok); }
+.wallet-mode-btn--debit { --mode-color: var(--destructive); }
+.wallet-mode-btn .wallet-mode-label {
+  color: color-mix(in srgb, var(--mode-color) 78%, var(--foreground));
+}
+.wallet-mode-btn .wallet-mode-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  background: var(--mode-color);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mode-color) 35%, transparent);
+}
+.wallet-mode-btn:hover {
+  background: color-mix(in srgb, var(--mode-color) 18%, var(--bg-elevated, var(--control-bg)));
+  border-color: color-mix(in srgb, var(--mode-color) 58%, var(--border));
+}
+.wallet-mode-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mode-color) 40%, transparent);
+}
+html[data-theme="light"] .wallet-mode-btn {
+  background: color-mix(in srgb, var(--mode-color) 10%, #fff);
+}
+html[data-theme="light"] .wallet-mode-btn .wallet-mode-label {
+  color: color-mix(in srgb, var(--mode-color) 72%, #000);
+}
+html[data-theme="light"] .wallet-mode-btn:hover {
+  background: color-mix(in srgb, var(--mode-color) 16%, #fff);
+}
+html[data-theme="light"] .user-edit-wallet-pill.is-positive {
+  background: color-mix(in srgb, var(--ok) 10%, #fff);
+}
+html[data-theme="light"] .user-edit-wallet-pill.is-negative {
+  background: color-mix(in srgb, var(--destructive) 8%, #fff);
 }
 .user-edit-empty {
   margin: 0;

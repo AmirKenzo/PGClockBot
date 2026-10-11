@@ -209,6 +209,13 @@ class AdminWalletAdjustUiContractTests(unittest.TestCase):
         self.assertIn('name="mode" value="debit"', edit)
         self.assertIn('name="mode" value="credit"', edit)
         self.assertIn("wallet-adjust-modes", edit)
+        self.assertIn("wallet-mode-btn--debit", edit)
+        self.assertIn("wallet-mode-btn--credit", edit)
+        self.assertIn("user-edit-wallet-pill", edit)
+        self.assertIn("is-positive", edit)
+        self.assertIn("user-edit-wallet-delete-warn", edit)
+        self.assertIn("user-edit-wallet-delete-warn-amt", edit)
+        self.assertIn("user-edit-wallet-delete-warn-note", edit)
         self.assertNotIn("مبلغ منفی", edit)
         self.assertNotIn("-۵۰,۰۰۰", edit)
 
@@ -242,6 +249,14 @@ class AdminWalletAdjustUiContractTests(unittest.TestCase):
         block = css.split(".wallet-adjust-modes {", 1)[1].split("}", 1)[0]
         self.assertIn("grid-template-columns: 1fr 1fr", block)
         self.assertIn("grid-column: 1 / -1", block)
+        self.assertIn(".wallet-mode-btn--credit", css)
+        self.assertIn(".wallet-mode-btn--debit", css)
+        credit = css.split(".wallet-mode-btn--credit {", 1)[1].split("}", 1)[0]
+        debit = css.split(".wallet-mode-btn--debit {", 1)[1].split("}", 1)[0]
+        self.assertIn("--ok", credit)
+        self.assertIn("--destructive", debit)
+        pill = css.split(".user-edit-wallet-pill.is-positive {", 1)[1].split("}", 1)[0]
+        self.assertIn("var(--ok)", pill)
 
     def test_confirm_preserves_submitter_mode(self):
         js = Path("app/web/static/panel.js").read_text(encoding="utf-8")
