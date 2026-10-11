@@ -38,13 +38,8 @@ BTN_MAIN_MENU: list[Field] = [
     ("btn_wallet", "کیف پول", "text"),
     ("btn_support", "پشتیبانی", "text"),
     ("btn_loyalty", "باشگاه مشتریان", "text"),
-    ("btn_guides", "آموزش‌ها", "text"),
     ("btn_reseller_apply", "درخواست نمایندگی", "text"),
     ("btn_miniapp", "مینی‌اپ", "text"),
-]
-
-# Shop list CTAs (not on the main ReplyKeyboard catalog).
-BTN_SHOP_LIST: list[Field] = [
     ("btn_wholesale", "فروش عمده", "text"),
 ]
 
@@ -70,6 +65,7 @@ BTN_SERVICE_ACTIONS: list[Field] = [
     ("btn_renew", "تمدید", "text"),
     ("btn_svc_addon", "حجم / زمان", "text"),
     ("btn_sub_link", "لینک و QR", "text"),
+    ("btn_guides", "آموزش‌ها", "text"),
     ("btn_cancel", "انصراف", "text"),
 ]
 
@@ -126,7 +122,6 @@ def shop_button_subs(*, include_platform: bool) -> list[tuple]:
     """Telegram shop-section subsections for button label editing."""
     pairs: list[tuple[str, str, list[Field]]] = [
         ("btn_main", "دکمه‌های منوی اصلی", BTN_MAIN_MENU),
-        ("btn_shop_list", "دکمه‌های لیست فروشگاه", BTN_SHOP_LIST),
         ("btn_wallet_sub", "دکمه‌های کیف پول", BTN_WALLET_SUB),
         ("btn_support_sub", "دکمه‌های پشتیبانی", BTN_SUPPORT_SUB),
         ("btn_loyalty_sub", "دکمه‌های باشگاه", BTN_LOYALTY_SUB),

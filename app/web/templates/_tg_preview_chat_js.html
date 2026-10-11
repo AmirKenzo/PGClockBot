@@ -249,7 +249,6 @@
         referral: values.btn_loyalty || values.btn_referral || '⭐ باشگاه مشتریان',
         reseller_apply: values.btn_reseller_apply || '🤝 درخواست نمایندگی',
         miniapp: values.btn_miniapp || '📱 مینی‌اپ',
-        guides: values.btn_guides || '📘 آموزش اتصال',
       };
       if (tab === 'buttons') {
         map.shop = val('btn_shop', map.shop);
@@ -260,7 +259,6 @@
         map.referral = map.loyalty;
         map.reseller_apply = val('btn_reseller_apply', map.reseller_apply);
         map.miniapp = val('btn_miniapp', map.miniapp);
-        map.guides = val('btn_guides', map.guides);
       }
       const styleMap = {
         shop: 'shop',
@@ -270,12 +268,11 @@
         loyalty: 'loyalty',
         referral: 'loyalty',
         reseller_apply: 'reseller_apply',
-        guides: 'guides',
       };
       const defaults = {
         shop: 'primary', services: 'primary', wallet: 'primary',
         support: 'primary', loyalty: 'success', reseller_apply: '',
-        miniapp: 'primary', guides: 'primary',
+        miniapp: 'primary',
       };
       // Option B: Mini App on reply KB; reseller_apply on welcome/support inline
       const labels = order.filter(function(k){

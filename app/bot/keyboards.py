@@ -17,10 +17,10 @@ from app.services.support_contacts import (
 )
 from app.services.users import DEFAULT_SETTINGS, on
 
-# Catalog of keys allowed on the user ReplyKeyboard (web/bot DnD + pool).
+# Default order for user menu items (drag-and-drop in web panel edits menu_order)
 # guide/faq removed from keyboard — keep texts available via /help if needed.
-# ``guides`` (آموزش اتصال) is optional: in the catalog/pool but off by default.
-DEFAULT_ACTIVE_MENU_ORDER = [
+# Connection «آموزش‌ها» lives on the service card (not the main ReplyKeyboard).
+DEFAULT_MENU_ORDER = [
     "shop",
     "services",
     "wallet",
@@ -29,10 +29,8 @@ DEFAULT_ACTIVE_MENU_ORDER = [
     "reseller_apply",
     "miniapp",
 ]
-DEFAULT_MENU_ORDER = [
-    *DEFAULT_ACTIVE_MENU_ORDER,
-    "guides",
-]
+# Alias kept for callers that distinguish catalog vs active (same set today).
+DEFAULT_ACTIVE_MENU_ORDER = list(DEFAULT_MENU_ORDER)
 
 # Legacy keys stripped from saved menu_order so old installs drop them from the keyboard
 REMOVED_MENU_KEYS = frozenset({"guide", "faq", "restart", "help", "referral"})
@@ -124,7 +122,6 @@ MENU_SHOW_KEYS = (
     "reseller_apply",
     "miniapp",
     "services",
-    "guides",
 )
 
 
@@ -270,16 +267,6 @@ def main_menu(
                     label_key="btn_miniapp",
                 )
             )
-        elif key == "guides":
-            buttons.append(
-                _ikb(
-                    _t(ui, "btn_guides") or "📘 آموزش اتصال",
-                    callback_data="guide:list:0",
-                    style=_style(ui, "guides", fallback="primary"),
-                    ui=ui,
-                    label_key="btn_guides",
-                )
-            )
 
     # compact = pair left-to-right like the web-panel live preview; classic = one per row
     full_width: list[InlineKeyboardButton] = []
@@ -342,7 +329,6 @@ REPLY_ACTION_ADM_LOY_TIERS = "adm_loy_tiers"
 REPLY_ACTION_ADM_LOY_SETTINGS = "adm_loy_settings"
 REPLY_ACTION_ADM_LOY_REF_TEXT = "adm_loy_ref_text"
 REPLY_ACTION_RESELLER_APPLY = "reseller_apply"
-REPLY_ACTION_GUIDES = "guides"
 REPLY_ACTION_RESELLER = "reseller"
 REPLY_ACTION_CREDS = "reseller_creds"
 REPLY_ACTION_ADMIN = "admin"
