@@ -1010,9 +1010,9 @@ async def settings_edit_ask(
         if is_button_label_key(key):
             if key == "btn_miniapp":
                 hint += (
-                    "\n<i>مینی‌اپ دکمهٔ web_app است — ایموجی پریمیوم به‌عنوان "
-                    "آیکن (icon_custom_emoji_id) روی آن ارسال نمی‌شود تا "
-                    "initData خالی نشود. فقط متن برچسب اعمال می‌شود.</i>"
+                    "\n<i>با زدن این دکمه روی کیبورد پایین، یک دکمهٔ اینلاین "
+                    "web_app فرستاده می‌شود (کیبورد پایین web_app مستقیم "
+                    "initData ندارد). Menu کنار چت هم مستقیم باز می‌کند.</i>"
                 )
             else:
                 hint += (
