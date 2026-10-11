@@ -61,8 +61,11 @@ class MiniappShopSuppressionTests(unittest.TestCase):
     def test_start_skips_miniapp_on_shop(self):
         src = (ROOT / "app/bot/handlers/start.py").read_text(encoding="utf-8")
         chunk = src.split("async def render_home")[1].split("async def ")[0]
-        self.assertIn("if not is_reseller_bot and effective_role not in", chunk)
+        # Platform bot: all roles get ahead-inline; shop bots never.
+        self.assertIn("if not is_reseller_bot:", chunk)
+        self.assertNotIn('effective_role not in {"admin", "reseller"}', chunk)
         self.assertIn("miniapp_inline_keyboard", chunk)
+        self.assertIn("send_reply_keyboard_last", chunk)
 
     def test_keyboard_refuses_shop_context(self):
         src = (ROOT / "app/bot/keyboards.py").read_text(encoding="utf-8")
