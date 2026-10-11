@@ -4,6 +4,7 @@
 {% block content %}
 {% set kind = plan.plan_kind or 'subscription' %}
 {% set is_addon = kind in ['addon_volume', 'addon_users'] %}
+{% set is_system_plan = plan.is_system or kind == 'current_capacity' %}
 <div class="page-head">
   <div>
     {{ page_title('plan-edit', 'ویرایش پلن', help='plans') }}
@@ -16,6 +17,10 @@
 
 {# flash_ok / flash_err rendered once in base.html #}
 
+{% if is_system_plan %}
+<div class="flash warn">پلن سیستمی «ظرفیت فعلی» — نوع و حجم/کاربر پایه قفل است؛ سقف از پاسارگارد ادمین خوانده می‌شود. فقط قیمت، مدت، تمدید و دسترسی قابل ویرایش است.</div>
+{% endif %}
+
 <div class="card">
   <form method="post" action="/resellers/plans/{{ plan.id }}/edit" class="form-stack" id="reseller-plan-edit-form">
     <div class="form-stack" data-ui-select-watch>
@@ -23,18 +28,23 @@
         <input type="text" value="نمایندگان" disabled />
       </label>
       <label class="form-field">نوع پلن
+        {% if is_system_plan %}
+        <input type="text" value="ظرفیت فعلی (سیستمی)" disabled />
+        <input type="hidden" name="plan_kind" id="edit-plan-kind" value="current_capacity" />
+        {% else %}
         <select name="plan_kind" id="edit-plan-kind">
           <option value="subscription" {% if kind == 'subscription' %}selected{% endif %}>اشتراک (نمایندگی)</option>
           <option value="addon_volume" {% if kind == 'addon_volume' %}selected{% endif %}>بسته حجم</option>
           <option value="addon_users" {% if kind == 'addon_users' %}selected{% endif %}>بسته کاربر</option>
         </select>
+        {% endif %}
       </label>
     </div>
 
     <div class="form-row">
       <div>
         <label class="form-field">نام
-          <input name="name" required value="{{ plan.name }}" />
+          <input name="name" required value="{{ plan.name }}" {% if is_system_plan %}readonly{% endif %} />
         </label>
       </div>
       <div>
@@ -43,14 +53,19 @@
           <small class="muted" id="edit-price-hint">{% if is_addon %}فقط برای نمایندگان با اشتراک فعال{% else %}قیمت خرید پکیج نمایندگی — ۰ = رایگان{% endif %}</small>
         </label>
       </div>
-      <div id="edit-billing-wrap">
+      <div id="edit-billing-wrap" {% if is_system_plan %}hidden{% endif %}>
         <label class="form-field">حالت پرداخت
           <select name="billing_mode" id="edit-billing-mode">
             <option value="fixed" {% if (plan.billing_mode or 'fixed') == 'fixed' %}selected{% endif %}>ثابت</option>
+            {% if not is_system_plan %}
             <option value="payg" {% if plan.billing_mode == 'payg' %}selected{% endif %}>PAYG</option>
+            {% endif %}
           </select>
         </label>
       </div>
+      {% if is_system_plan %}
+      <input type="hidden" name="billing_mode" value="fixed" />
+      {% endif %}
       <div id="edit-price-per-gb-field" hidden>
         <label class="form-field">نرخ هر گیگ (تومان)
           <input name="price_per_gb" id="edit-price-per-gb-input" type="number" data-money min="0" value="{{ plan.price_per_gb or 0 }}" />
@@ -85,16 +100,19 @@
         <small class="muted">۰ = بدون محدودیت زمان روی اشتراک محلی</small>
       </label>
     </div>
-    <div class="form-row" id="edit-included-fields">
+    <div class="form-row" id="edit-included-fields" {% if is_system_plan %}hidden{% endif %}>
       <label class="form-field">حجم پایه (گیگ)
-        <input name="included_gb" type="number" min="0" value="{{ plan.included_gb or 0 }}" />
+        <input name="included_gb" type="number" min="0" value="{{ plan.included_gb or 0 }}" {% if is_system_plan %}readonly{% endif %} />
         {% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.account_data_limit %}<small class="muted">سقف هر پلن: {{ pg_limit_snapshot.account_data_limit | bytes }}</small>{% endif %}
       </label>
       <label class="form-field">کاربر پایه
-        <input name="included_users" type="number" min="0" value="{{ plan.included_users or 0 }}" />
+        <input name="included_users" type="number" min="0" value="{{ plan.included_users or 0 }}" {% if is_system_plan %}readonly{% endif %} />
         {% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.max_users %}<small class="muted">سقف هر پلن: {{ pg_limit_snapshot.max_users }} کاربر</small>{% endif %}
       </label>
     </div>
+    {% if is_system_plan %}
+    <p class="muted">حجم/کاربر پایه همیشه ۰ است — هنگام اعطا، سقف زنده ادمین پاسارگارد در اشتراک محلی ثبت می‌شود.</p>
+    {% endif %}
     <div class="form-row" id="edit-addon-fields" {% if not is_addon %}hidden{% endif %}>
       <label class="form-field" id="edit-addon-gb-field">حجم بسته (گیگ)
         <input name="addon_gb" type="number" min="0" value="{{ plan.addon_gb or 0 }}" />
@@ -118,7 +136,7 @@
     </div>
 
     <div id="edit-subscription-extras">
-    <div id="edit-groups" class="form-field">
+    <div id="edit-groups" class="form-field" {% if is_system_plan %}hidden{% endif %}>
       <span class="form-field-label">گروه‌های پاسارگارد (الزامی)</span>
       <p class="muted update-card-caption">حداقل یک گروه باید انتخاب شود — برای ثابت و PAYG.</p>
       <div class="ui-switch-grid">
@@ -142,7 +160,9 @@
     </div>
 
     <div class="ui-switch-list" id="edit-provision-switches">
+      {% if not is_system_plan %}
       {{ switch('create_pg_admin', 'ساخت ادمین پاسارگارد هنگام تأیید', checked=plan.create_pg_admin, help='با نقش پاسارگارد پلن؛ برای مالکیت کاربران لازم است') }}
+      {% endif %}
       {{ switch('share_pg_panel_url', 'ارسال لینک و یوزر/رمز پنل پاسارگارد', checked=plan.share_pg_panel_url, help='اگر خاموش باشد، نماینده فقط از وب‌پنل ربات مدیریت می‌کند') }}
     </div>
 
@@ -161,18 +181,26 @@
     </div>
     </div>{# /edit-buy-extra-block #}
 
-    <label class="form-field" id="edit-role-field">نقش پاسارگارد (الزامی)
-      <select name="pg_role_id" id="edit-pg-role">
+    <label class="form-field" id="edit-role-field" {% if is_system_plan %}hidden{% endif %}>نقش پاسارگارد (الزامی)
+      <select name="pg_role_id" id="edit-pg-role" {% if is_system_plan %}disabled{% endif %}>
         <option value="" disabled {% if not plan.pg_role_id %}selected{% endif %}>— انتخاب کنید —</option>
         {% for r in pg_roles %}
         <option value="{{ r.get('id') }}" {% if plan.pg_role_id == r.get('id') %}selected{% endif %}>{{ r.get('name') or r.get('id') }}</option>
         {% endfor %}
       </select>
     </label>
+    {% if is_system_plan %}
+    <p class="muted">نقش پاسارگارد از خود ادمین موجود می‌آید — این پلن نقش جدید نمی‌سازد.</p>
+    {% endif %}
     </div>{# /edit-subscription-extras #}
 
     <div class="ui-switch-list">
+      {% if is_system_plan %}
+      <p class="muted">وضعیت: فعال (پلن سیستمی — خاموش‌کردن مجاز نیست)</p>
+      <input type="hidden" name="is_active" value="1" />
+      {% else %}
       {{ switch('is_active', 'پلن فعال', checked=plan.is_active) }}
+      {% endif %}
     </div>
     {% if plan.button_style is none %}
     {% set plan_button_style = 'inherit' %}
@@ -207,7 +235,9 @@
     const buyBlock = document.getElementById('edit-buy-extra-block');
     const renewMode = document.getElementById('edit-renew-pricing-mode');
     const payg = mode && mode.value === 'payg';
-    if (buyBlock) buyBlock.hidden = payg || ((planKind && planKind.value) || 'subscription') !== 'subscription';
+    const kind = (planKind && planKind.value) || 'subscription';
+    const clockKind = kind === 'subscription' || kind === 'current_capacity';
+    if (buyBlock) buyBlock.hidden = payg || !clockKind;
     if (renewMode) {
       const fixedOpt = renewMode.querySelector('option[value="fixed"]');
       const forceCapacity = !!(allowExtra && allowExtra.checked) && !payg;
@@ -235,22 +265,26 @@
   function syncKind(){
     const v = (planKind && planKind.value) || 'subscription';
     const isSub = v === 'subscription';
+    const isCurrent = v === 'current_capacity';
+    const isClock = isSub || isCurrent;
     const isVol = v === 'addon_volume';
     const isUsers = v === 'addon_users';
     const isAddon = isVol || isUsers;
     const payg = mode && mode.value === 'payg';
     setHidden(document.getElementById('edit-included-fields'), !isSub);
-    setHidden(document.getElementById('edit-renew-fields'), !isSub);
-    setHidden(document.getElementById('edit-duration-field'), !isSub);
+    setHidden(document.getElementById('edit-renew-fields'), !isClock);
+    setHidden(document.getElementById('edit-duration-field'), !isClock);
     setHidden(document.getElementById('edit-addon-fields'), !isAddon);
     setHidden(document.getElementById('edit-addon-gb-field'), !isVol);
     setHidden(document.getElementById('edit-addon-users-field'), !isUsers);
     setHidden(extras, isAddon);
-    setHidden(billingWrap, isAddon);
-    setHidden(rateField, isAddon || !payg);
+    setHidden(billingWrap, isAddon || isCurrent);
+    setHidden(rateField, isAddon || isCurrent || !payg);
     setHidden(document.getElementById('edit-buy-extra-block'), isAddon || payg);
+    setHidden(document.getElementById('edit-groups'), isAddon || isCurrent);
+    setHidden(document.getElementById('edit-role-field'), isAddon || isCurrent);
     if (roleSel) {
-      if (isAddon) {
+      if (isAddon || isCurrent) {
         roleSel.removeAttribute('required');
       } else {
         roleSel.setAttribute('required', 'required');

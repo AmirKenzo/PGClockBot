@@ -316,6 +316,10 @@ def _migrate_sqlite_legacy(sync_conn) -> None:
             sync_conn.execute(
                 sql_text("ALTER TABLE reseller_plans ADD COLUMN category_id INTEGER")
             )
+        if "is_system" not in pcols:
+            sync_conn.execute(
+                sql_text("ALTER TABLE reseller_plans ADD COLUMN is_system BOOLEAN DEFAULT 0")
+            )
 
     if not insp.has_table("pg_admin_subscriptions"):
         sync_conn.execute(

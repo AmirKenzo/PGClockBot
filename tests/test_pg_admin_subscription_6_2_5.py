@@ -105,6 +105,7 @@ class PlanKindTests(unittest.TestCase):
 
         self.assertEqual(plan_kind_of(None), "subscription")
         self.assertTrue(is_subscription_plan(SimpleNamespace(plan_kind="subscription")))
+        self.assertTrue(is_subscription_plan(SimpleNamespace(plan_kind="current_capacity")))
         self.assertTrue(is_addon_plan(SimpleNamespace(plan_kind="addon_volume")))
         self.assertTrue(is_addon_plan(SimpleNamespace(plan_kind="addon_users")))
         self.assertFalse(is_subscription_plan(SimpleNamespace(plan_kind="addon_volume")))
