@@ -34,7 +34,7 @@ def normalize_telegram_ids_csv(raw: str | None) -> str | None:
 
 
 def is_bot_admin_id(profile: ResellerProfile | None, telegram_id: int) -> bool:
-    if not profile:
+    if profile is None or not hasattr(profile, "bot_admin_ids"):
         return False
     from app.services.platform_identity import is_synthetic_telegram_id
 
@@ -64,6 +64,9 @@ async def resolve_reseller_owner_id(
     if db_user.id == reseller_owner_id:
         return int(reseller_owner_id)
     profile = await get_reseller_profile(session, int(reseller_owner_id))
+    # Reject awaitables / mock garbage — only real profiles have bot_admin_ids.
+    if profile is None or not hasattr(profile, "bot_admin_ids"):
+        return None
     if is_bot_admin_id(profile, db_user.telegram_id):
         return int(reseller_owner_id)
     return None
