@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.2": [
+        "خانه/گزارش: عدد درآمد مثل بقیهٔ متریک‌ها راست‌چین (دیگر با dir=ltr چپ نمی‌افتد)",
+        "جدول کاربران: ستون نام پهن‌تر؛ تگ‌ها دوتایی کنار هم، تگ سوم ردیف بعد",
+        "ریستور: restore/pre-v0.3.2-v0.3.1",
+    ],
     "0.3.1": [
         "منوی CLI: نصب/آپدیت جدا برای main و dev؛ باکس وضعیت بدون خط عمودی",
         "نصب Python 3.12: در صورت نبود در apt، افزودن deadsnakes PPA (رفع خطای 3.14)",
