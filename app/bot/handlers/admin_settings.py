@@ -1008,10 +1008,17 @@ async def settings_edit_ask(
         from app.services.rich_text import is_button_label_key, is_message_rich_key
 
         if is_button_label_key(key):
-            hint += (
-                "\n<i>ایموجی پریمیوم به‌عنوان آیکن دکمه "
-                "(icon_custom_emoji_id) ذخیره می‌شود.</i>"
-            )
+            if key == "btn_miniapp":
+                hint += (
+                    "\n<i>مینی‌اپ دکمهٔ web_app است — ایموجی پریمیوم به‌عنوان "
+                    "آیکن (icon_custom_emoji_id) روی آن ارسال نمی‌شود تا "
+                    "initData خالی نشود. فقط متن برچسب اعمال می‌شود.</i>"
+                )
+            else:
+                hint += (
+                    "\n<i>ایموجی پریمیوم به‌عنوان آیکن دکمه "
+                    "(icon_custom_emoji_id) ذخیره می‌شود.</i>"
+                )
         elif is_message_rich_key(key):
             hint += "\n<i>ایموجی پریمیوم در متن پیام حفظ می‌شود.</i>"
     from app.bot.nav_input import ask_text

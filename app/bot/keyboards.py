@@ -457,6 +457,11 @@ def _ikb(
         kwargs["url"] = url
     if style:
         kwargs["style"] = style
+    # web_app + icon_custom_emoji_id → some Telegram clients open the sheet
+    # with empty initData (reply KB and inline). Never combine them.
+    if kwargs.get("web_app") is not None:
+        kwargs.pop("icon_custom_emoji_id", None)
+        return InlineKeyboardButton(**kwargs)
     icon = icon_custom_emoji_id
     if icon is None and ui is not None and (label_key or kwargs.get("icon_custom_emoji_id") is None):
         from app.services.rich_text import button_icon_from_ui
@@ -704,16 +709,8 @@ def miniapp_inline_keyboard(
     if not view and "miniapp" not in _menu_order(ui):
         return None
     text = (label or _t(ui, "btn_miniapp") or "📱 مینی‌اپ").strip() or "📱 مینی‌اپ"
-    # Prefer _ikb so premium btn_miniapp icons survive (same as reply keyboard).
-    if label is None:
-        btn = _ikb(
-            text[:64],
-            web_app=WebAppInfo(url=url),
-            ui=ui,
-            label_key="btn_miniapp",
-        )
-    else:
-        btn = InlineKeyboardButton(text=text[:64], web_app=WebAppInfo(url=url))
+    # Plain web_app only — never icon_custom_emoji_id (breaks initData).
+    btn = _ikb(text[:64], web_app=WebAppInfo(url=url))
     return InlineKeyboardMarkup(inline_keyboard=[[btn]])
 
 

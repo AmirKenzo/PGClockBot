@@ -47,11 +47,13 @@ class MiniappPremiumIconTests(unittest.TestCase):
             btn = miniapp_reply_button(ui)
         self.assertIsNotNone(btn)
         self.assertIsNone(getattr(btn, "icon_custom_emoji_id", None))
-        self.assertEqual(btn.text, "📱 مینی‌اپ")
+        # Premium glyph used as icon is stripped from the plain label.
+        self.assertEqual(btn.text, "مینی‌اپ")
         self.assertIsNotNone(btn.web_app)
         self.assertEqual(btn.web_app.url, "https://example.com/miniapp/")
 
-    def test_inline_keyboard_sets_icon_for_default_label(self):
+    def test_inline_web_app_omits_icon_custom_emoji(self):
+        """Inline web_app must also omit icon_custom_emoji_id (initData)."""
         from app.bot.keyboards import miniapp_inline_keyboard
 
         body = "📱 مینی‌اپ"
@@ -84,7 +86,10 @@ class MiniappPremiumIconTests(unittest.TestCase):
             markup = miniapp_inline_keyboard(ui)
         self.assertIsNotNone(markup)
         btn = markup.inline_keyboard[0][0]
-        self.assertEqual(btn.icon_custom_emoji_id, "42")
+        self.assertIsNone(getattr(btn, "icon_custom_emoji_id", None))
+        self.assertIsNotNone(btn.web_app)
+        # Display text strips the packed custom-emoji glyph span.
+        self.assertNotIn("icon_custom_emoji_id", (btn.model_dump(exclude_none=True) or {}))
 
 
 class SettingsHubBackTests(unittest.IsolatedAsyncioTestCase):

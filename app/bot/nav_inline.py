@@ -1205,13 +1205,13 @@ def miniapp_reply_button(ui: dict | None = None):
 
     Do **not** set ``icon_custom_emoji_id`` on web_app KeyboardButtons: some
     Telegram clients open the sheet without ``initData`` when that field is set
-    (MenuButtonWebApp beside the composer still works). Keep any premium glyph
-    inside the plain ``text`` via ``rich_plain_text`` instead.
+    (MenuButtonWebApp beside the composer still works). Label uses
+    ``button_display_text`` (plain text only — no premium icon field).
     """
     from aiogram.types import KeyboardButton, WebAppInfo
 
     from app.config import get_settings
-    from app.services.rich_text import rich_plain_text
+    from app.services.rich_text import button_display_text
     from app.services.users import current_shop_reseller_id
 
     if current_shop_reseller_id():
@@ -1228,5 +1228,5 @@ def miniapp_reply_button(ui: dict | None = None):
     if "miniapp" not in _menu_order(ui):
         return None
     raw = (ui or {}).get("btn_miniapp") if ui else None
-    text = (rich_plain_text(raw) if raw else "").strip() or "📱 مینی‌اپ"
+    text = (button_display_text(raw) if raw else "").strip() or "📱 مینی‌اپ"
     return KeyboardButton(text=text[:64], web_app=WebAppInfo(url=url))
