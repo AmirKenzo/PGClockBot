@@ -807,9 +807,11 @@ DEFAULT_SETTINGS = {
     "show_wallet": "1",
     "show_support": "1",
     "show_miniapp": "1",
+    "show_guides": "0",
     "menu_layout": "compact",
     "nav_mode": "inline",
     "wallet_topup_presets": "50000,100000,200000,500000",
+    # guides omitted on purpose — optional; enable via menu DnD / pool
     "menu_order": "shop,services,wallet,support,loyalty,reseller_apply,miniapp",
     "pg_username_prefix": "clk",
     "pg_username_suffix": "",
