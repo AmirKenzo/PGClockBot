@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.6": [
+        "کیبورد: بعد از تغییر متن دکمه‌ها، برچسب‌های قبلی همچنان کار می‌کنند (alias)",
+        "مینی‌اپ: دکمه کیبورد دیگر icon_custom_emoji_id ندارد تا initData خالی نشود؛ harden خواندن initData",
+        "آموزش‌ها: روی کارت سرویس کاربر با متن و رنگ قابل ویرایش (نه کیبورد اصلی)",
+        "ریستور: restore/pre-v0.3.6-v0.3.5",
+    ],
     "0.3.5": [
         "نمایندگی: پلن سیستمی «ظرفیت فعلی» — اعطا/تبدیل بدون تغییر سقف زنده پاسارگارد",
         "کیف پول ادمین: لیست تراکنش ویرایش کاربر فقط همان کیف فروشگاه را نشان می‌دهد (بدون نشت بین فروشگاه‌ها)",
