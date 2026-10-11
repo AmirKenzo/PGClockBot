@@ -482,6 +482,7 @@ html[data-theme="light"] .channel-badge-dev {
   gap: var(--space-0);
   max-width: 100%;
   min-width: 0;
+  width: max-content;
 }
 .cell-name-primary {
   display: inline-flex;
@@ -498,15 +499,19 @@ html[data-theme="light"] .channel-badge-dev {
   white-space: nowrap;
   font-weight: 500;
 }
+/* Two tags per row; 3rd wraps. Column grows via .col-name min-width. */
 .cell-name-tags {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  justify-content: start;
   align-items: center;
   gap: var(--space-0);
+  width: max-content;
   max-width: 100%;
 }
 .cell-name-tags > .badge {
   flex: 0 0 auto;
+  white-space: nowrap;
 }
 .cell-name-primary > .alert-dot {
   flex: 0 0 auto;
@@ -770,7 +775,10 @@ html[data-theme="light"] .badge.badge-risk-tag {
   vertical-align: middle;
 }
 .users-ops-table .col-name {
-  min-width: 6.5rem;
+  /* Wide enough for two short tags side-by-side (e.g. مدیر + مطمئن) */
+  min-width: 11.5rem;
+  width: auto;
+  max-width: 20rem;
   vertical-align: middle;
 }
 .users-ops-table .col-wallet {
@@ -6944,7 +6952,11 @@ td.col-type {
   white-space: nowrap;
 }
 th.col-name,
-td.col-name,
+td.col-name {
+  width: auto;
+  min-width: 11.5rem;
+  max-width: 20rem;
+}
 th.col-user,
 td.col-user,
 th.col-text,
@@ -8795,6 +8807,22 @@ html[data-theme="light"] .pg-node-metric {
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
+  /* Match sibling metrics in RTL — never left-align because of dir=ltr on amounts */
+  text-align: start;
+  width: 100%;
+}
+.home-period-metrics dd[dir="ltr"],
+.home-period-metrics dd > [dir="ltr"] {
+  display: inline-block;
+  text-align: start;
+  width: auto;
+  max-width: 100%;
+  unicode-bidi: isolate;
+}
+/* If dir=ltr is on the dd itself, pin the value to the same edge as other metrics */
+.home-period-metrics dd[dir="ltr"] {
+  display: block;
+  text-align: right;
 }
 .home-action-empty {
   margin: 0;
