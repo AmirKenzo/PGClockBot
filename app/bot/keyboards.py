@@ -27,13 +27,13 @@ DEFAULT_MENU_ORDER = [
     "support",
     "loyalty",
     "reseller_apply",
-    "miniapp",
 ]
 # Alias kept for callers that distinguish catalog vs active (same set today).
 DEFAULT_ACTIVE_MENU_ORDER = list(DEFAULT_MENU_ORDER)
 
-# Legacy keys stripped from saved menu_order so old installs drop them from the keyboard
-REMOVED_MENU_KEYS = frozenset({"guide", "faq", "restart", "help", "referral"})
+# Legacy keys stripped from saved menu_order so old installs drop them from the keyboard.
+# miniapp lives on the welcome inline button (not ReplyKeyboard / menu DnD).
+REMOVED_MENU_KEYS = frozenset({"guide", "faq", "restart", "help", "referral", "miniapp"})
 
 
 def _t(ui: dict | None, key: str) -> str:
@@ -120,7 +120,6 @@ MENU_SHOW_KEYS = (
     "support",
     "loyalty",
     "reseller_apply",
-    "miniapp",
     "services",
 )
 
@@ -152,7 +151,6 @@ def main_menu(
     if role == Role.ADMIN.value and not as_user:
         return admin_main_menu(ui)
 
-    settings = get_settings()
     buttons: list[InlineKeyboardButton] = []
 
     for key in _menu_order(ui):
@@ -258,15 +256,7 @@ def main_menu(
                     label_key="btn_reseller_apply",
                 )
             )
-        elif key == "miniapp" and settings.miniapp_enabled:
-            buttons.append(
-                _ikb(
-                    _t(ui, "btn_miniapp"),
-                    web_app=WebAppInfo(url=settings.miniapp_url),
-                    ui=ui,
-                    label_key="btn_miniapp",
-                )
-            )
+        # miniapp is welcome-inline only (not main_menu Reply/inline catalog)
 
     # compact = pair left-to-right like the web-panel live preview; classic = one per row
     full_width: list[InlineKeyboardButton] = []
@@ -691,10 +681,14 @@ def miniapp_inline_keyboard(
     view: str = "",
     label: str | None = None,
 ) -> InlineKeyboardMarkup | None:
-    """WebApp can only live on inline keyboards. Platform bot only.
+    """Inline web_app open button — platform bot only when Mini App HTTPS is ready.
+
+    Used on the welcome ``/start`` message (and legacy reply-tap heal). Not gated
+    by ``menu_order`` (miniapp is no longer a ReplyKeyboard / DnD item).
 
     Telegram rejects non-HTTPS WebApp URLs — never emit a button unless the
-    URL is https://… (otherwise /start shows the welcome then an error).
+    URL is https://… . Never set ``icon_custom_emoji_id`` (empty initData).
+    Label/style: ``btn_miniapp`` / ``btn_style_miniapp``.
     """
     from app.services.users import current_shop_reseller_id
 
@@ -707,11 +701,12 @@ def miniapp_inline_keyboard(
     url = settings.miniapp_deep_url(view) if view else settings.miniapp_url
     if not url or not str(url).startswith("https://"):
         return None
-    if not view and "miniapp" not in _menu_order(ui):
-        return None
     text = (label or _t(ui, "btn_miniapp") or "📱 مینی‌اپ").strip() or "📱 مینی‌اپ"
-    # Plain web_app only — never icon_custom_emoji_id (breaks initData).
-    btn = _ikb(text[:64], web_app=WebAppInfo(url=url))
+    btn = _ikb(
+        text[:64],
+        web_app=WebAppInfo(url=url),
+        style=_style(ui, "miniapp", fallback="primary"),
+    )
     return InlineKeyboardMarkup(inline_keyboard=[[btn]])
 
 

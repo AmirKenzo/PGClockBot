@@ -27,7 +27,7 @@
   let active = false;
   let renderTimer = 0;
   let menuObserver = null;
-  const REMOVED_MENU = {guide:1, faq:1, restart:1, help:1};
+  const REMOVED_MENU = {guide:1, faq:1, restart:1, help:1, miniapp:1, referral:1};
   const DEBOUNCE_MS = 180;
 
   function val(name, fallback){
@@ -93,7 +93,7 @@
     const mo = document.getElementById('menu_order');
     const raw = (mo && mo.value)
       ? mo.value
-      : String(values.menu_order || 'shop,services,wallet,support,loyalty,reseller_apply,miniapp');
+      : String(values.menu_order || 'shop,services,wallet,support,loyalty,reseller_apply');
     return raw.split(',').map(s => s.trim() === 'referral' ? 'loyalty' : s.trim()).filter(k => k && !REMOVED_MENU[k] && k !== 'referral');
   }
   function menuLayout(){
@@ -248,7 +248,6 @@
         loyalty: values.btn_loyalty || '⭐ باشگاه مشتریان',
         referral: values.btn_loyalty || values.btn_referral || '⭐ باشگاه مشتریان',
         reseller_apply: values.btn_reseller_apply || '🤝 درخواست نمایندگی',
-        miniapp: values.btn_miniapp || '📱 مینی‌اپ',
       };
       if (tab === 'buttons') {
         map.shop = val('btn_shop', map.shop);
@@ -258,7 +257,6 @@
         map.loyalty = val('btn_loyalty', map.loyalty);
         map.referral = map.loyalty;
         map.reseller_apply = val('btn_reseller_apply', map.reseller_apply);
-        map.miniapp = val('btn_miniapp', map.miniapp);
       }
       const styleMap = {
         shop: 'shop',
@@ -272,11 +270,10 @@
       const defaults = {
         shop: 'primary', services: 'primary', wallet: 'primary',
         support: 'primary', loyalty: 'success', reseller_apply: '',
-        miniapp: 'primary',
       };
-      // Option B: Mini App on reply KB; reseller_apply on welcome/support inline
+      // Reply KB: no miniapp / reseller_apply (welcome or support inline)
       const labels = order.filter(function(k){
-        return k !== 'reseller_apply';
+        return k !== 'reseller_apply' && k !== 'miniapp';
       }).map(function(k){
         const label = map[k];
         if (!label) return null;
@@ -288,8 +285,19 @@
       keysEl.innerHTML = '';
     }
     if (inlineEl) {
-      inlineEl.hidden = true;
-      inlineEl.innerHTML = '';
+      // Welcome / buttons / menu preview: miniapp as inline web_app under welcome
+      var showMiniInline = (tab === 'welcome' || tab === 'buttons' || tab === 'menu');
+      var miniLabel = (tab === 'buttons')
+        ? val('btn_miniapp', values.btn_miniapp || '📱 مینی‌اپ')
+        : (values.btn_miniapp || '📱 مینی‌اپ');
+      var miniTone = styleTone('miniapp', 'primary');
+      if (showMiniInline && miniLabel) {
+        inlineEl.hidden = false;
+        inlineEl.innerHTML = '<div class="tg-inline-row"><button type="button" class="tg-inline-key" data-tone="'+esc(miniTone)+'">'+esc(miniLabel)+'</button></div>';
+      } else {
+        inlineEl.hidden = true;
+        inlineEl.innerHTML = '';
+      }
     }
     if (sceneEl) sceneEl.hidden = true;
     if (textEl) textEl.innerHTML = esc(text).replace(/\n/g,'<br>');

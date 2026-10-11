@@ -4261,7 +4261,6 @@ def create_api_app(lifespan=None) -> FastAPI:
             "support": {"label": "پشتیبانی", "required": False},
             "loyalty": {"label": "باشگاه مشتریان", "required": False},
             "reseller_apply": {"label": "درخواست نمایندگی", "required": False},
-            "miniapp": {"label": "مینی‌اپ", "required": False},
         }
         # Migrate legacy referral → loyalty for DnD UI
         if "referral" in order and "loyalty" not in order:
@@ -4310,6 +4309,8 @@ def create_api_app(lifespan=None) -> FastAPI:
         # nav_mode classic removed — always inline (Option B)
         payload["nav_mode"] = "inline"
         payload.update(sync_show_flags_for_order(order))
+        # miniapp is welcome-inline only — never a DnD / ReplyKeyboard item
+        payload["show_miniapp"] = "0"
         if reseller_id is not None:
             payload["show_reseller_apply"] = "0"
         await set_settings_bulk(session, payload, reseller_id=reseller_id)

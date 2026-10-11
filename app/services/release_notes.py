@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.8": [
+        "مینی‌اپ: از کیبورد پایین و چیدمان منوی پنل حذف شد — وقتی HTTPS فعال باشد، دکمهٔ اینلاین روی پیام خوش‌آمد (/start) می‌آید",
+        "مینی‌اپ: متن (btn_miniapp) و رنگ (btn_style_miniapp) از ربات و پنل قابل ویرایش است؛ Menu کنار چت هم باز می‌کند",
+        "ریستور: restore/pre-v0.3.8-v0.3.7",
+    ],
     "0.3.7": [
         "مینی‌اپ: دکمه کیبورد پایین دیگر web_app مستقیم نیست — با لمس، دکمهٔ اینلاین باز می‌شود تا initData از تلگرام برسد",
         "مینی‌اپ: روی دکمه‌های web_app دیگر icon_custom_emoji_id گذاشته نمی‌شود",
