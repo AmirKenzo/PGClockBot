@@ -15,11 +15,17 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.0": [
+        "ارتقای پایدار: تیپ کانال توسعه (تا v0.2.59) روی شاخهٔ main به‌عنوان نسخهٔ پایدار منتشر شد",
+        "شامل: ناوبری اینلاین، کیف پول credit/debit، کانال main/dev در CLI و پنل، پین Python 3.10–3.12، و بقیهٔ پچ‌های ۰٫۲٫۲۵ تا ۰٫۲٫۵۹",
+        "ریستور main از قبل از ارتقا: restore/pre-v0.3.0-v0.2.24",
+    ],
     "0.2.59": [
         "منوی CLI: برند نارنجی MrClockBot، باکس وضعیت نصب/نسخه/کانال، هشدار سخت‌افزار ضعیف (۱ هسته و ≈۱ گیگ رم)",
         "نصب و آپدیت اسکریپت: انتخاب کانال پایدار (main) یا توسعه (dev) و ذخیره در .env",
         "ریستور: restore/pre-v0.2.59-v0.2.58",
     ],
+
     "0.2.58": [
         "نصب: venv پنل فقط روی Python 3.10–3.12 (ترجیح 3.12)؛ بازسازی venvهای 3.13+ و نمایش پیشرفت pip تا روی VPS ضعیف گیر نکند",
         "ریستور: restore/pre-v0.2.58-v0.2.57",
