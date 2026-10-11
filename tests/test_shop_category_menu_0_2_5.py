@@ -97,6 +97,17 @@ class ShopKindKeyboardCategoryTests(unittest.TestCase):
         self.assertIn("shop:kind:trial", cbs)
         self.assertTrue(all(not (c or "").startswith("shop:cat:") for c in cbs))
 
+    def test_kind_picker_ends_with_back_to_home(self):
+        markup = shop_kind_keyboard(None, fixed_on=True, trial_on=True)
+        cbs = [b.callback_data for row in markup.inline_keyboard for b in row]
+        self.assertEqual(cbs[-1], "menu:home")
+        self.assertEqual(cbs.count("menu:home"), 1)
+
+    def test_empty_picker_still_has_home_escape(self):
+        markup = shop_kind_keyboard(None)
+        cbs = [b.callback_data for row in markup.inline_keyboard for b in row]
+        self.assertEqual(cbs, ["menu:home"])
+
     def test_categories_replace_fixed(self):
         cats = [_cat(id=3, name="VIP", button_style="danger"), _cat(id=4, name="اقتصادی")]
         markup = shop_kind_keyboard(

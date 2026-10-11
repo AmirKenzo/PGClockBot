@@ -1,4 +1,4 @@
-"""Miniapp: welcome inline only — not ReplyKeyboard / menu DnD."""
+"""Miniapp: welcome ahead-inline + reply KB last — all platform roles."""
 
 from __future__ import annotations
 
@@ -27,12 +27,6 @@ class MiniappMenuCatalogTests(unittest.TestCase):
         ordered = _menu_order({"menu_order": "shop,miniapp,wallet"})
         self.assertEqual(ordered, ["shop", "wallet"])
 
-    def test_btn_miniapp_still_editable_in_main_labels(self):
-        from app.services.settings_button_labels import BTN_MAIN_MENU
-
-        keys = {f[0] for f in BTN_MAIN_MENU}
-        self.assertIn("btn_miniapp", keys)
-
 
 class MiniappInlineKeyboardTests(unittest.TestCase):
     def test_inline_uses_label_and_style_without_menu_order(self):
@@ -41,7 +35,7 @@ class MiniappInlineKeyboardTests(unittest.TestCase):
         ui = {
             "btn_miniapp": "🚀 اپ من",
             "btn_style_miniapp": "success",
-            "menu_order": "shop,wallet",  # no miniapp
+            "menu_order": "shop,wallet",
         }
         with (
             patch(
@@ -138,47 +132,19 @@ class MiniappInlineKeyboardTests(unittest.TestCase):
         self.assertIsNone(getattr(btn, "icon_custom_emoji_id", None))
 
 
-class MiniappReplyKeyboardTests(unittest.TestCase):
-    def test_reply_entries_never_include_miniapp(self):
-        from app.bot.reply_keyboards import _reply_user_entries
-
-        entries = _reply_user_entries(
-            "user",
-            has_services=True,
-            ui={"menu_order": "shop,miniapp,wallet", "btn_shop": "خرید", "btn_wallet": "کیف"},
-        )
-        self.assertNotIn("miniapp", {a for a, _ in entries})
-
-    def test_pack_reply_button_rejects_miniapp(self):
-        from app.bot.keyboards import REPLY_ACTION_MINIAPP
-        from app.bot.reply_keyboards import _pack_reply_button
-
-        self.assertIsNone(_pack_reply_button(REPLY_ACTION_MINIAPP, "مینی‌اپ", {}))
-
-
 class RenderHomeMiniappTests(unittest.IsolatedAsyncioTestCase):
-    async def test_welcome_attaches_inline_and_seeds_reply_kb(self):
+    async def _run_home(self, *, role: str, is_reseller_bot: bool, mini_kb, main_kb, ui):
         from app.bot.handlers.start import render_home
-        from app.db.models import Role
 
         message = AsyncMock()
         message.answer = AsyncMock(return_value=MagicMock())
         session = AsyncMock()
         db_user = MagicMock()
         db_user.id = 1
-        db_user.role = Role.USER.value
+        db_user.role = role
         db_user.full_name = "Test"
         db_user.telegram_id = 123
         db_user.username = "t"
-
-        ui = {
-            "welcome_text": "سلام",
-            "shop_title": "فروشگاه",
-            "menu_order": "shop,wallet",
-            "btn_miniapp": "📱 مینی‌اپ",
-        }
-        main_kb = MagicMock(name="MAIN_REPLY")
-        mini_kb = MagicMock(name="MINI_INLINE")
 
         with (
             patch(
@@ -187,149 +153,139 @@ class RenderHomeMiniappTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "app.services.reseller_access.effective_menu_role",
-                new=AsyncMock(return_value="user"),
+                new=AsyncMock(return_value=role),
             ),
             patch(
                 "app.bot.menu_nav.build_main_reply_keyboard",
-                new=AsyncMock(return_value=(main_kb, ui, "user")),
+                new=AsyncMock(return_value=(main_kb, ui, role)),
             ),
             patch(
                 "app.bot.keyboards.miniapp_inline_keyboard",
                 return_value=mini_kb,
             ),
             patch(
-                "app.bot.handlers.start.seed_main_reply_kb",
+                "app.bot.tg_utils.send_reply_keyboard_last",
                 new=AsyncMock(),
-            ) as seed,
+            ) as send_last,
             patch(
                 "app.services.rich_text.outbound_setting_text",
                 return_value=("HOME_TEXT", {}),
             ),
+            patch(
+                "app.bot.handlers.start.seed_main_reply_kb",
+                new=AsyncMock(),
+            ) as seed,
         ):
             await render_home(
                 message,
                 session,
                 db_user,
                 ui=ui,
-                effective_role="user",
-                is_reseller_bot=False,
+                effective_role=role,
+                is_reseller_bot=is_reseller_bot,
+                reseller_owner_id=9 if is_reseller_bot else None,
             )
+        return message, send_last, seed
 
-        self.assertEqual(message.answer.await_count, 1)
-        call = message.answer.await_args
-        self.assertEqual(call.args[0], "HOME_TEXT")
-        self.assertIs(call.kwargs.get("reply_markup"), mini_kb)
-        seed.assert_awaited_once()
-
-    async def test_welcome_no_inline_when_disabled(self):
-        from app.bot.handlers.start import render_home
-        from app.db.models import Role
-
-        message = AsyncMock()
-        message.answer = AsyncMock(return_value=MagicMock())
-        session = AsyncMock()
-        db_user = MagicMock()
-        db_user.id = 1
-        db_user.role = Role.USER.value
-        db_user.full_name = "Test"
-        db_user.telegram_id = 123
-        db_user.username = "t"
-
-        ui = {
-            "welcome_text": "سلام",
-            "shop_title": "فروشگاه",
-            "menu_order": "shop",
-        }
+    async def test_user_welcome_uses_send_last_no_keyboard_emoji_seed(self):
+        ui = {"welcome_text": "سلام", "shop_title": "فروشگاه", "btn_miniapp": "مینی اپ"}
         main_kb = MagicMock(name="MAIN_REPLY")
+        mini_kb = MagicMock(name="MINI_INLINE")
+        message, send_last, seed = await self._run_home(
+            role="user",
+            is_reseller_bot=False,
+            mini_kb=mini_kb,
+            main_kb=main_kb,
+            ui=ui,
+        )
+        send_last.assert_awaited_once()
+        ahead_list = send_last.await_args.kwargs.get("ahead")
+        self.assertIsNotNone(ahead_list)
+        self.assertEqual(ahead_list[0][1], mini_kb)
+        self.assertEqual(ahead_list[0][0], "\u3164")
+        self.assertNotIn("⌨️", ahead_list[0][0])
+        self.assertIs(send_last.await_args.args[2], main_kb)
+        seed.assert_not_awaited()
+        message.answer.assert_not_awaited()
 
-        with (
-            patch(
-                "app.bot.handlers.start.get_all_settings",
-                new=AsyncMock(return_value=ui),
-            ),
-            patch(
-                "app.services.reseller_access.effective_menu_role",
-                new=AsyncMock(return_value="user"),
-            ),
-            patch(
-                "app.bot.menu_nav.build_main_reply_keyboard",
-                new=AsyncMock(return_value=(main_kb, ui, "user")),
-            ),
-            patch(
-                "app.bot.keyboards.miniapp_inline_keyboard",
-                return_value=None,
-            ),
-            patch(
-                "app.bot.handlers.start.seed_main_reply_kb",
-                new=AsyncMock(),
-            ) as seed,
-            patch(
-                "app.services.rich_text.outbound_setting_text",
-                return_value=("HOME_TEXT", {}),
-            ),
-        ):
-            await render_home(
-                message,
-                session,
-                db_user,
-                ui=ui,
-                effective_role="user",
-                is_reseller_bot=False,
-            )
+    async def test_admin_also_gets_miniapp_ahead(self):
+        ui = {"shop_title": "فروشگاه", "btn_miniapp": "مینی اپ"}
+        main_kb = MagicMock(name="MAIN_REPLY")
+        mini_kb = MagicMock(name="MINI_INLINE")
+        _message, send_last, seed = await self._run_home(
+            role="admin",
+            is_reseller_bot=False,
+            mini_kb=mini_kb,
+            main_kb=main_kb,
+            ui=ui,
+        )
+        send_last.assert_awaited_once()
+        ahead_list = send_last.await_args.kwargs.get("ahead")
+        self.assertEqual(ahead_list[0][1], mini_kb)
+        seed.assert_not_awaited()
 
-        call = message.answer.await_args
-        self.assertIs(call.kwargs.get("reply_markup"), main_kb)
+    async def test_reseller_on_platform_bot_gets_miniapp(self):
+        ui = {"shop_title": "فروشگاه", "btn_miniapp": "مینی اپ"}
+        main_kb = MagicMock(name="MAIN_REPLY")
+        mini_kb = MagicMock(name="MINI_INLINE")
+        # On platform bot, reseller role still sees customer welcome path when
+        # effective_role is user-like; when effective_role is reseller on main
+        # bot they still get mini (not a shop bot).
+        _message, send_last, seed = await self._run_home(
+            role="reseller",
+            is_reseller_bot=False,
+            mini_kb=mini_kb,
+            main_kb=main_kb,
+            ui=ui,
+        )
+        send_last.assert_awaited_once()
+        self.assertEqual(send_last.await_args.kwargs["ahead"][0][1], mini_kb)
         seed.assert_not_awaited()
 
     async def test_shop_bot_skips_miniapp(self):
-        from app.bot.handlers.start import render_home
-        from app.db.models import Role
-
-        message = AsyncMock()
-        message.answer = AsyncMock(return_value=MagicMock())
-        session = AsyncMock()
-        db_user = MagicMock()
-        db_user.id = 1
-        db_user.role = Role.USER.value
-        db_user.full_name = "Test"
-        db_user.telegram_id = 123
-        db_user.username = "t"
         ui = {"welcome_text": "سلام", "shop_title": "فروشگاه", "menu_order": "shop"}
         main_kb = MagicMock(name="MAIN_REPLY")
-
-        with (
-            patch(
-                "app.bot.handlers.start.get_all_settings",
-                new=AsyncMock(return_value=ui),
-            ),
-            patch(
-                "app.services.reseller_access.effective_menu_role",
-                new=AsyncMock(return_value="user"),
-            ),
-            patch(
-                "app.bot.menu_nav.build_main_reply_keyboard",
-                new=AsyncMock(return_value=(main_kb, ui, "user")),
-            ),
-            patch(
-                "app.bot.keyboards.miniapp_inline_keyboard",
-            ) as mini,
-            patch(
-                "app.services.rich_text.outbound_setting_text",
-                return_value=("HOME_TEXT", {}),
-            ),
-        ):
-            await render_home(
-                message,
-                session,
-                db_user,
-                ui=ui,
-                effective_role="user",
-                is_reseller_bot=True,
-                reseller_owner_id=9,
-            )
-
-        mini.assert_not_called()
+        message, send_last, seed = await self._run_home(
+            role="user",
+            is_reseller_bot=True,
+            mini_kb=MagicMock(name="SHOULD_NOT"),
+            main_kb=main_kb,
+            ui=ui,
+        )
+        send_last.assert_not_awaited()
+        seed.assert_not_awaited()
+        message.answer.assert_awaited_once()
         self.assertIs(message.answer.await_args.kwargs.get("reply_markup"), main_kb)
+
+    async def test_no_mini_when_disabled_single_welcome(self):
+        ui = {"welcome_text": "سلام", "shop_title": "فروشگاه"}
+        main_kb = MagicMock(name="MAIN_REPLY")
+        message, send_last, seed = await self._run_home(
+            role="user",
+            is_reseller_bot=False,
+            mini_kb=None,
+            main_kb=main_kb,
+            ui=ui,
+        )
+        send_last.assert_not_awaited()
+        seed.assert_not_awaited()
+        self.assertIs(message.answer.await_args.kwargs.get("reply_markup"), main_kb)
+
+
+class SeedMainReplyNoKeyboardEmojiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_seed_main_reply_kb_rejects_keyboard_emoji_tip(self):
+        from app.bot.handlers.start import seed_main_reply_kb
+
+        message = AsyncMock()
+        reply_kb = MagicMock()
+        with patch(
+            "app.bot.tg_utils.attach_reply_keyboard",
+            new=AsyncMock(),
+        ) as attach:
+            await seed_main_reply_kb(message, reply_kb, tip="⌨️")
+            attach.assert_awaited_once()
+            self.assertNotIn("⌨️", attach.await_args.kwargs.get("text", ""))
+            self.assertEqual(attach.await_args.kwargs.get("text"), "منوی اصلی")
 
 
 if __name__ == "__main__":

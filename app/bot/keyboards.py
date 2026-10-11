@@ -896,6 +896,20 @@ def shop_kind_keyboard(
         )
     if not rows:
         rows = [[InlineKeyboardButton(text="پلنی نیست", callback_data="menu:home")]]
+    else:
+        # Same as wallet/support/loyalty hubs — back to welcome (menu:home).
+        # Nested plan lists keep back_callback="shop:list" (kind picker), not home.
+        rows.append(
+            [
+                _ikb(
+                    _t(ui, "btn_back") or "⬅️ بازگشت",
+                    callback_data="menu:home",
+                    ui=ui,
+                    label_key="btn_back",
+                    style=_style(ui, "back"),
+                )
+            ]
+        )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

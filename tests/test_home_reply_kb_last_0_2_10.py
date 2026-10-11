@@ -86,7 +86,8 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(call.kwargs.get("reply_markup"), main_kb)
         seed.assert_not_awaited()
 
-    async def test_render_home_with_miniapp_inline_then_seed_reply(self):
+    async def test_render_home_with_miniapp_uses_send_reply_keyboard_last(self):
+        """Mini ahead + welcome with ReplyKeyboard last — no ⌨️ filler seed."""
         from app.bot.handlers.start import render_home
         from app.db.models import Role
 
@@ -107,6 +108,7 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
             "shop_title": "فروشگاه",
             "menu_order": "shop,wallet",
             "btn_menu_home": "🏠 منوی اصلی",
+            "btn_miniapp": "مینی اپ",
         }
         main_kb = MagicMock(name="MAIN_REPLY")
         mini_kb = MagicMock(name="MINI_INLINE")
@@ -137,6 +139,10 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
                 return_value=mini_kb,
             ),
             patch(
+                "app.bot.tg_utils.send_reply_keyboard_last",
+                new=AsyncMock(),
+            ) as send_last,
+            patch(
                 "app.bot.handlers.start.seed_main_reply_kb",
                 new=AsyncMock(),
             ) as seed,
@@ -154,11 +160,14 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
                 is_reseller_bot=False,
             )
 
-        self.assertEqual(message.answer.await_count, 1)
-        call = message.answer.await_args
-        self.assertEqual(call.args[0], "HOME_TEXT")
-        self.assertIs(call.kwargs.get("reply_markup"), mini_kb)
-        seed.assert_awaited_once()
+        message.answer.assert_not_awaited()
+        send_last.assert_awaited_once()
+        self.assertEqual(send_last.await_args.args[1], "HOME_TEXT")
+        self.assertIs(send_last.await_args.args[2], main_kb)
+        ahead = send_last.await_args.kwargs["ahead"]
+        self.assertEqual(ahead[0][1], mini_kb)
+        self.assertNotIn("⌨️", ahead[0][0])
+        seed.assert_not_awaited()
 
     async def test_render_home_without_mini_still_attaches_reply(self):
         from app.bot.handlers.start import render_home
@@ -221,11 +230,13 @@ class HomeReplySourceGuards(unittest.TestCase):
         from app.bot.handlers import start
 
         src = inspect.getsource(start.render_home)
-        self.assertNotIn("send_reply_keyboard_last", src)
+        self.assertIn("send_reply_keyboard_last", src)
         self.assertIn("miniapp_inline_keyboard", src)
-        self.assertIn("seed_main_reply_kb", src)
+        self.assertIn("if not is_reseller_bot:", src)
+        self.assertNotIn('effective_role not in {"admin", "reseller"}', src)
         self.assertIn("message.answer(text, reply_markup=reply_kb", src)
         self.assertNotIn('await message.answer("📱"', src)
+        self.assertNotIn('tip: str = "⌨️"', inspect.getsource(start.seed_main_reply_kb))
         seed = inspect.getsource(start.seed_main_reply_kb)
         self.assertIn("attach_reply_keyboard", seed)
         self.assertNotIn("ephemeral=True", seed)
