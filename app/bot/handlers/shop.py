@@ -1462,6 +1462,147 @@ async def shop_trial_contact_cancel(
         return
     await message.answer("لطفاً از دکمه «ارسال شماره تماس» استفاده کنید یا انصراف بزنید.")
 
+
+class _PayBackCallback:
+    """Minimal CallbackQuery stand-in for reusing shop/service presenters."""
+
+    def __init__(self, message, data: str):
+        self.message = message
+        self.data = data
+        self.bot = getattr(message, "bot", None)
+
+    async def answer(self, *args, **kwargs):
+        return None
+
+
+async def navigate_order_pay_back(
+    message,
+    session: AsyncSession,
+    db_user: BotUser,
+    order: Order,
+    state: FSMContext,
+    *,
+    is_reseller_bot: bool = False,
+    reseller_owner_id: int | None = None,
+) -> None:
+    """Leave the pay panel and reopen the previous shop / service step.
+
+    Does not cancel the pending order (same as today's Cancel → home).
+    """
+    from app.bot.menu_nav import clear_checkout_nav
+    from app.db.models import OrderStatus
+
+    note = (order.note or "").strip()
+    status = (order.status or "").strip()
+    await clear_checkout_nav(state)
+
+    if status not in {
+        OrderStatus.PENDING.value,
+        OrderStatus.AWAITING_RECEIPT.value,
+    }:
+        await shop_list(
+            _PayBackCallback(message, "shop:list"),
+            session,
+            db_user,
+            state,
+        )
+        return
+
+    if note.startswith("renew:") or note.startswith("svc_addon:"):
+        svc_id = order.service_id
+        if svc_id is None and note.startswith("renew:"):
+            try:
+                svc_id = int(note.split(":", 1)[1].split(":")[0])
+            except (TypeError, ValueError, IndexError):
+                svc_id = None
+        if svc_id is None and note.startswith("svc_addon:"):
+            parts = note.split(":")
+            try:
+                svc_id = int(parts[1])
+            except (TypeError, ValueError, IndexError):
+                svc_id = None
+        if svc_id:
+            from app.bot.handlers.services import svc_view
+
+            await svc_view(
+                _PayBackCallback(message, f"svc:view:{int(svc_id)}"),
+                session,
+                db_user,
+                state,
+            )
+            return
+
+    if note.startswith("reseller_app:"):
+        from app.bot.handlers.reseller import resapply_home
+
+        await resapply_home(
+            _PayBackCallback(message, "resapply:home"),
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        )
+        return
+
+    if note == "custom":
+        await custom_start(_PayBackCallback(message, "shop:custom"), session, state)
+        return
+
+    if note.startswith("wholesale:"):
+        await shop_kind_wholesale(
+            _PayBackCallback(message, "shop:kind:wholesale"),
+            session,
+            state,
+        )
+        return
+
+    if order.plan_id:
+        await shop_plan(
+            _PayBackCallback(message, f"shop:plan:{int(order.plan_id)}"),
+            session,
+            db_user,
+        )
+        return
+
+    await shop_list(
+        _PayBackCallback(message, "shop:list"),
+        session,
+        db_user,
+        state,
+    )
+
+
+@router.callback_query(F.data.startswith("pay:back:"))
+async def pay_back(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    db_user: BotUser,
+    state: FSMContext,
+    is_reseller_bot: bool = False,
+    reseller_owner_id: int | None = None,
+):
+    try:
+        order_id = int((callback.data or "").split(":")[-1])
+    except (TypeError, ValueError):
+        await callback.answer("نامعتبر", show_alert=True)
+        return
+    order = await session.get(Order, order_id)
+    if not order or int(order.user_id) != int(db_user.id):
+        await callback.answer("سفارش نامعتبر", show_alert=True)
+        return
+    await callback.answer()
+    if callback.message:
+        await navigate_order_pay_back(
+            callback.message,
+            session,
+            db_user,
+            order,
+            state,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        )
+
+
 @router.callback_query(F.data.startswith("pay:discount:"))
 async def ask_discount(
     callback: CallbackQuery,

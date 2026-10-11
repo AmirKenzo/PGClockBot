@@ -64,6 +64,27 @@ async def user_has_services(session: AsyncSession, user_id: int) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+async def user_sees_my_services(
+    session: AsyncSession,
+    db_user: BotUser,
+    *,
+    is_reseller_bot: bool = False,
+    reseller_owner_id: int | None = None,
+) -> bool:
+    """True when My Services should appear (VPN rows and/or reseller capacity)."""
+    if await user_has_services(session, int(db_user.id)):
+        return True
+    from app.services.reseller_access import load_reseller_my_service_profile
+
+    profile = await load_reseller_my_service_profile(
+        session,
+        db_user,
+        is_reseller_bot=is_reseller_bot,
+        reseller_owner_id=reseller_owner_id,
+    )
+    return profile is not None
+
+
 async def _platform_admin_menu_flags(
     session: AsyncSession,
     db_user: BotUser,
@@ -155,7 +176,15 @@ async def build_main_reply_keyboard(
             profile, ui, can_add_representative=can_add
         )
         return markup, ui, role
-    has = False if (role == "admin" and not as_user) else await user_has_services(session, db_user.id)
+    if role == "admin" and not as_user:
+        has = False
+    else:
+        has = await user_sees_my_services(
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        )
     show_creds = is_shop_owner_on_main_bot(db_user, is_reseller_bot=is_reseller_bot)
     owner_profile = None
     if show_creds and not as_user:

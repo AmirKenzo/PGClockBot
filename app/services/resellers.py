@@ -1113,6 +1113,109 @@ def format_credentials_message(creds: dict) -> str:
     return "\n".join(lines)
 
 
+def reseller_my_service_list_label(profile) -> str:
+    """Inline list label for the reseller capacity row under My Services."""
+    uname = (getattr(profile, "pg_admin_username", None) or "").strip()
+    if uname:
+        return f"🤝 نمایندگی · {uname}"[:64]
+    return "🤝 سرویس نمایندگی"
+
+
+async def format_reseller_my_service_card(session: AsyncSession, profile) -> str:
+    """Service info + remaining volume/users for a reseller's PG admin account."""
+    from app.services.billing import is_payg
+    from app.services.formatting import (
+        copyable,
+        format_expire_short,
+        format_message,
+        info_block,
+        kv_line,
+    )
+    from app.services.pg_admin_subscription import get_subscription
+    from app.services.pg_overview import build_reseller_pg_overview
+    from app.services.reseller_capacity import load_reseller_plan
+
+    uname = (profile.pg_admin_username or "").strip()
+    plan = await load_reseller_plan(session, profile)
+    staff = {
+        "role": "reseller",
+        "bot_user_id": int(profile.user_id),
+        "reseller_profile_id": int(profile.id),
+        "pg_admin_username": uname,
+        "pg_role_id": getattr(profile, "pg_role_id", None),
+    }
+    overview = await build_reseller_pg_overview(staff, session=session)
+    sub = await get_subscription(session, uname) if uname else None
+
+    block: list[str] = [
+        kv_line("🛡", "ادمین پاسارگارد", copyable(uname) if uname else "—"),
+    ]
+    if plan is not None:
+        block.append(kv_line("💎", "پلن", str(plan.name or "—")))
+    if is_payg(profile):
+        block.append(kv_line("💳", "حالت صورتحساب", "PAYG"))
+    else:
+        block.append(kv_line("💳", "حالت صورتحساب", "اشتراک ثابت"))
+
+    if overview.get("ready"):
+        status_label = overview.get("status_label") or overview.get("status") or "—"
+        block.append(kv_line("📶", "وضعیت", str(status_label)))
+        traffic = overview.get("traffic") or {}
+        users = overview.get("users") or {}
+        if traffic:
+            block.append(
+                kv_line(
+                    "📦",
+                    "حجم",
+                    str(traffic.get("ratio_text") or traffic.get("used_text") or "—"),
+                )
+            )
+            remain = traffic.get("remain_text")
+            if traffic.get("has_limit") and remain:
+                block.append(kv_line("📉", "باقی‌مانده حجم", str(remain)))
+        if users:
+            block.append(
+                kv_line(
+                    "👥",
+                    "کاربران",
+                    str(users.get("ratio_text") or users.get("used_text") or "—"),
+                )
+            )
+            uremain = users.get("remain_text")
+            if users.get("has_limit") and uremain:
+                block.append(kv_line("🔢", "ظرفیت کاربر باقی‌مانده", str(uremain)))
+        if overview.get("lifetime_text"):
+            block.append(kv_line("♾", "مصرف کل", str(overview["lifetime_text"])))
+        role_name = overview.get("role_name")
+        if role_name:
+            block.append(kv_line("🎭", "نقش", str(role_name)))
+    else:
+        err = (overview.get("error") or "").strip() or "خواندن ظرفیت از پاسارگارد ممکن نشد"
+        block.append(kv_line("⚠️", "ظرفیت زنده", err))
+
+    if sub is not None:
+        base = int(getattr(sub, "base_gb", 0) or 0)
+        extra = int(getattr(sub, "extra_gb_purchased", 0) or 0)
+        if base or extra:
+            total = base + extra
+            block.append(
+                kv_line(
+                    "🗂",
+                    "سقف اشتراک",
+                    f"{total} گیگ" if total else "—",
+                )
+            )
+            if extra:
+                block.append(kv_line("➕", "حجم اضافه خریداری‌شده", f"{extra} گیگ"))
+        exp = getattr(sub, "expires_at", None)
+        if exp is not None:
+            block.append(
+                kv_line("🗓", "انقضای اشتراک", format_expire_short(exp) or "—")
+            )
+
+    return format_message("🤝 سرویس نمایندگی", info_block(block))
+
+
 async def format_reseller_access_card(session: AsyncSession, profile) -> str:
     """Non-secret access info for a reseller on the main bot (no plaintext passwords)."""
     from app.services.formatting import copyable, format_message, info_block, kv_line

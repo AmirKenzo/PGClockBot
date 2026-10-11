@@ -118,6 +118,27 @@ async def load_reseller_capacity_actor(
     return int(db_user.id), profile
 
 
+async def load_reseller_my_service_profile(
+    session: AsyncSession,
+    db_user: BotUser,
+    *,
+    is_reseller_bot: bool = False,
+    reseller_owner_id: int | None = None,
+) -> ResellerProfile | None:
+    """Active reseller profile with a linked PG admin — shown under My Services."""
+    _owner_id, profile = await load_reseller_capacity_actor(
+        session,
+        db_user,
+        is_reseller_bot=is_reseller_bot,
+        reseller_owner_id=reseller_owner_id,
+    )
+    if profile is None:
+        return None
+    if not (profile.pg_admin_username or "").strip():
+        return None
+    return profile
+
+
 async def effective_menu_role(
     session: AsyncSession,
     db_user: BotUser,
