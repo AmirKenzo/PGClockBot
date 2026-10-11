@@ -1630,6 +1630,9 @@ async def resplan_toggle(callback: CallbackQuery, session: AsyncSession, db_user
     if not plan:
         await callback.answer("یافت نشد", show_alert=True)
         return
+    if bool(getattr(plan, "is_system", False)):
+        await callback.answer("پلن سیستمی قابل خاموش‌کردن نیست", show_alert=True)
+        return
     plan.is_active = not plan.is_active
     await _persist(session)
     await callback.answer("بروز شد")
@@ -1725,6 +1728,9 @@ async def resplan_del(callback: CallbackQuery, session: AsyncSession, db_user: B
     plan = await session.get(ResellerPlan, pid)
     if not plan:
         await callback.answer("یافت نشد", show_alert=True)
+        return
+    if bool(getattr(plan, "is_system", False)):
+        await callback.answer("پلن سیستمی قابل حذف نیست", show_alert=True)
         return
     mode = reseller_plan_mode_of(plan)
     try:

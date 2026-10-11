@@ -441,6 +441,13 @@ def register_reseller_pages(app, *, render, require_admin, get_db, require_staff
                 f"/resellers?err={_q('پلن نمایندگی نامعتبر یا غیرفعال است')}",
                 status_code=303,
             )
+        from app.services.pg_admin_subscription import is_current_capacity_plan
+
+        if is_current_capacity_plan(plan):
+            return RedirectResponse(
+                f"/resellers?err={_q('پلن «ظرفیت فعلی» فقط برای اعطای نماینده به ادمین از قبل موجود است')}",
+                status_code=303,
+            )
         perms = _feature_perms_from_form(form)
         create_pg = bool(form.get("create_pg_admin"))
         share_pg = bool(form.get("share_pg_panel_url"))
@@ -602,7 +609,10 @@ def register_reseller_pages(app, *, render, require_admin, get_db, require_staff
             else:
                 await session.commit()
             billing_txs = await list_billing_transactions(session, int(user_id), limit=15)
-            wallet_txs = await list_wallet_txs(session, int(user_id), limit=15)
+            # PAYG billing pot is the platform purse (reseller_id IS NULL).
+            wallet_txs = await list_wallet_txs(
+                session, int(user_id), limit=15, shop_id=None
+            )
             billing_rate = await resolve_price_per_gb(session, rate_context_for_profile(profile))
             if profile.billing_suspended_at is not None:
                 from app.services.billing_suspend import min_topup_to_unsuspend
@@ -1382,8 +1392,66 @@ def register_reseller_pages(app, *, render, require_admin, get_db, require_staff
             return RedirectResponse(f"/plans?err={_q('یافت نشد')}#reseller-plans", status_code=303)
         form = await request.form()
         from app.services.button_styles import parse_plan_button_style_form
+        from app.services.pg_admin_subscription import is_current_capacity_plan
 
         button_style = parse_plan_button_style_form(form)
+
+        # System «ظرفیت فعلی»: allow price/duration/perms/renew only — lock kind & capacity.
+        if bool(getattr(plan, "is_system", False)) or is_current_capacity_plan(plan):
+            plan.button_style = button_style
+            plan.description = str(form.get("description") or "").strip() or None
+            try:
+                plan.price = max(
+                    0, int(str(form.get("price") or "0").replace(",", "").replace("٬", ""))
+                )
+            except ValueError:
+                pass
+            try:
+                plan.sort_order = int(str(form.get("sort_order") or "0") or "0")
+            except ValueError:
+                pass
+            plan.plan_kind = "current_capacity"
+            plan.is_system = True
+            plan.is_active = True
+            plan.billing_mode = "fixed"
+            plan.price_per_gb = 0
+            plan.pg_group_ids = None
+            plan.included_gb = 0
+            plan.included_users = 0
+            plan.addon_gb = 0
+            plan.addon_users = 0
+            plan.create_pg_admin = False
+            plan.create_web_access = True
+            plan.duration_days = _parse_nonneg_int(form, "duration_days")
+            plan.renew_price = _parse_nonneg_int(form, "renew_price")
+            plan.allow_buy_extra = bool(form.get("allow_buy_extra"))
+            plan.extra_gb_price = (
+                _parse_nonneg_int(form, "extra_gb_price") if plan.allow_buy_extra else 0
+            )
+            plan.extra_user_price = (
+                _parse_nonneg_int(form, "extra_user_price") if plan.allow_buy_extra else 0
+            )
+            plan.renew_pricing_mode = _parse_renew_pricing_mode(
+                form, allow_buy_extra=bool(plan.allow_buy_extra)
+            )
+            plan.share_pg_panel_url = bool(form.get("share_pg_panel_url"))
+            perms = _feature_perms_from_form(form)
+            plan.web_permissions = perms
+            plan.bot_permissions = perms
+            plan.can_approve_receipts = "payments" in parse_perms(perms)
+            # Keep name stable for operator recognition.
+            from app.services.resellers import CURRENT_CAPACITY_PLAN_NAME
+
+            plan.name = CURRENT_CAPACITY_PLAN_NAME
+            from app.services.billing import sync_plan_billing_rate
+
+            await sync_plan_billing_rate(session, plan)
+            await session.commit()
+            return RedirectResponse(
+                f"/plans?ok={_q('پلن ظرفیت فعلی ذخیره شد')}#reseller-plans",
+                status_code=303,
+            )
+
         name = str(form.get("name") or "").strip()
         if not name:
             return RedirectResponse(
@@ -1542,6 +1610,11 @@ def register_reseller_pages(app, *, render, require_admin, get_db, require_staff
     ):
         plan = await session.get(ResellerPlan, plan_id)
         if plan:
+            if bool(getattr(plan, "is_system", False)):
+                return RedirectResponse(
+                    f"/plans?err={_q('پلن سیستمی («ظرفیت فعلی») قابل خاموش‌کردن نیست')}#reseller-plans",
+                    status_code=303,
+                )
             plan.is_active = not plan.is_active
             from app.services.billing import sync_plan_billing_rate
 

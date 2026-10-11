@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot import keyboards as kb
 from app.bot import menu_nav as nav
-from app.bot.menu_nav import restore_main_reply, user_has_services
+from app.bot.menu_nav import restore_main_reply
 from app.db.models import BotUser, Order, Role, UserService
 from app.services.formatting import format_message
 from app.services.home_overview import admin_customer_counts
@@ -249,7 +249,14 @@ async def _nav_context(
         is_reseller_bot=is_reseller_bot,
         reseller_owner_id=reseller_owner_id,
     )
-    has = await user_has_services(session, db_user.id)
+    from app.bot.menu_nav import user_sees_my_services
+
+    has = await user_sees_my_services(
+        session,
+        db_user,
+        is_reseller_bot=is_reseller_bot,
+        reseller_owner_id=reseller_owner_id,
+    )
     show_creds = is_shop_owner_on_main_bot(db_user, is_reseller_bot=is_reseller_bot)
     return ui, role, has, show_creds
 
@@ -331,6 +338,7 @@ async def open_services_list(
     reseller_owner_id: int | None = None,
     heal_reply: bool = False,
 ) -> None:
+    from app.bot.handlers.services import _reseller_capacity_list_label
     from app.bot.menu_nav import build_main_reply_keyboard
     from app.bot.nav_chrome import heal_main_reply
     from app.bot.nav_inline import present_inline_only
@@ -341,6 +349,12 @@ async def open_services_list(
         .order_by(UserService.id.desc())
     )
     services = list(result.scalars().all())
+    reseller_label = await _reseller_capacity_list_label(
+        session,
+        db_user,
+        is_reseller_bot=is_reseller_bot,
+        reseller_owner_id=reseller_owner_id,
+    )
     main_kb, _, _ = await build_main_reply_keyboard(
         session,
         db_user,
@@ -349,7 +363,7 @@ async def open_services_list(
     )
     if state is not None:
         await nav.set_nav_level(state, nav.NAV_SERVICES, push=push)
-    if not services:
+    if not services and not reseller_label:
         from app.services.rich_text import outbound_setting_text
 
         text, send_kw = outbound_setting_text(
@@ -358,8 +372,8 @@ async def open_services_list(
         )
         await message.answer(text, reply_markup=main_kb, **send_kw)
         return
-    # Exactly one service → open its card directly (Wave B).
-    if len(services) == 1:
+    # Exactly one customer service and no reseller capacity → open card (Wave B).
+    if len(services) == 1 and not reseller_label:
         from app.bot.handlers.services import svc_view
 
         bubble = await message.answer("⏳")
@@ -379,11 +393,39 @@ async def open_services_list(
                 ui=ui,
             )
         return
+    # Only reseller capacity → open that card directly.
+    if not services and reseller_label:
+        from app.bot.handlers.services import svc_reseller_view
+
+        bubble = await message.answer("⏳")
+        cb = _SoftCallback(bubble, "svc:reseller")
+        await svc_reseller_view(
+            cb,
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        )
+        if heal_reply:
+            await heal_main_reply(
+                message,
+                session,
+                db_user,
+                text="سرویس نمایندگی — از دکمه‌های پیام بالا ادامه دهید.",
+                is_reseller_bot=is_reseller_bot,
+                reseller_owner_id=reseller_owner_id,
+                ui=ui,
+            )
+        return
     body = "📦 <b>سرویس‌های شما</b>\nیکی را انتخاب کنید:"
     from app.bot.nav_inline import services_list_keyboard
 
     await present_inline_only(
-        message, text=body, inline=services_list_keyboard(services, ui)
+        message,
+        text=body,
+        inline=services_list_keyboard(
+            services, ui, reseller_capacity_label=reseller_label
+        ),
     )
     if heal_reply:
         await heal_main_reply(
@@ -2128,29 +2170,21 @@ async def handle_back(
         data2 = await state.get_data()
         oid = data2.get(nav.PAY_ORDER_ID)
         if oid:
-            from app.bot.menu_nav import present_order_pay
-            from app.config import get_settings
+            from app.bot.handlers.shop import navigate_order_pay_back
             from app.db.models import Order
-            from app.services.formatting import format_toman
 
             order = await session.get(Order, int(oid))
-            summary = None
-            if order is not None:
-                summary = (
-                    f"🛒 سفارش #{order.id}\n"
-                    f"مبلغ: <b>{format_toman(order.amount, get_settings().currency)}</b>"
+            if order is not None and int(order.user_id) == int(db_user.id):
+                await navigate_order_pay_back(
+                    message,
+                    session,
+                    db_user,
+                    order,
+                    state,
+                    is_reseller_bot=is_reseller_bot,
+                    reseller_owner_id=reseller_owner_id,
                 )
-            await present_order_pay(
-                message,
-                session,
-                db_user,
-                int(oid),
-                state=state,
-                summary=summary,
-                is_reseller_bot=is_reseller_bot,
-                reseller_owner_id=reseller_owner_id,
-            )
-            return
+                return
         await open_wallet_home(message, session, db_user, state, push=False)
         return
     if level == nav.NAV_TOPUP_PAY:
@@ -2553,6 +2587,15 @@ async def reply_main_nav(
         "res_st_notify",
         kb.REPLY_ACTION_RES_ST_PANEL,
         kb.REPLY_ACTION_ADM_ST_PANEL,
+        # Keep System → Settings stack when opening a settings section
+        "adm_st_shop",
+        "adm_st_menu",
+        "adm_st_pay",
+        "adm_st_support",
+        "adm_st_access",
+        "adm_st_limits",
+        "adm_st_guides",
+        "adm_st_notify",
         kb.REPLY_ACTION_REV_OK,
         kb.REPLY_ACTION_REV_NO,
         kb.REPLY_ACTION_SVC_LINK,

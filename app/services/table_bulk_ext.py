@@ -236,6 +236,8 @@ async def bulk_reseller_plan_action(
             continue
         try:
             async with session.begin_nested():
+                if bool(getattr(plan, "is_system", False)):
+                    raise PlanDeleteBlocked("پلن سیستمی («ظرفیت فعلی») قابل حذف یا خاموش‌کردن نیست")
                 if action == "toggle":
                     plan.is_active = not plan.is_active
                     await sync_plan_billing_rate(session, plan)

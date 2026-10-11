@@ -121,7 +121,11 @@ async def answer_staff_nav(
     clear_state: bool = False,
     **reopen_kw: Any,
 ) -> None:
-    """Heal reply chrome after cancel/finish; optionally restore an inline hub."""
+    """Heal reply chrome after cancel/finish; optionally restore an inline hub.
+
+    Option B: when reopening an inline hub from a cancel prompt, skip the
+    standalone «لغو شد.» heal bubble — edit/reopen in place like Back.
+    """
     if ui is None:
         ui = await get_all_settings(session)
     if clear_state and state is not None:
@@ -130,15 +134,24 @@ async def answer_staff_nav(
         except Exception:
             pass
     _ = classic
-    await heal_main_reply(
-        message,
-        session,
-        db_user,
-        text=text,
-        is_reseller_bot=is_reseller_bot,
-        reseller_owner_id=reseller_owner_id,
-        ui=ui,
+    from app.bot.nav_inline import is_bot_panel_message
+
+    body = (text or "").strip()
+    silent_cancel = reopen_panel is not None and (
+        not body
+        or body in {"لغو شد.", "لغو شد"}
+        or is_bot_panel_message(message)
     )
+    if not silent_cancel:
+        await heal_main_reply(
+            message,
+            session,
+            db_user,
+            text=body or _HEAL_FALLBACK_TEXT,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+            ui=ui,
+        )
     if reopen_panel is not None:
         await reopen_panel(
             message,

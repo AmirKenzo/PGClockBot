@@ -125,6 +125,10 @@ class BuildMainReplyTenancyTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=False),
             ),
             patch(
+                "app.services.reseller_access.load_reseller_my_service_profile",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
                 "app.bot.menu_nav.get_all_settings",
                 new=AsyncMock(return_value=ui),
             ),
