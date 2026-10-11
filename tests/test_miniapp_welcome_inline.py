@@ -1,4 +1,4 @@
-"""Miniapp: welcome ahead-inline + reply KB last — all platform roles."""
+"""Miniapp: welcome carries inline web_app — all platform roles, no filler seed."""
 
 from __future__ import annotations
 
@@ -164,10 +164,6 @@ class RenderHomeMiniappTests(unittest.IsolatedAsyncioTestCase):
                 return_value=mini_kb,
             ),
             patch(
-                "app.bot.tg_utils.send_reply_keyboard_last",
-                new=AsyncMock(),
-            ) as send_last,
-            patch(
                 "app.services.rich_text.outbound_setting_text",
                 return_value=("HOME_TEXT", {}),
             ),
@@ -184,90 +180,79 @@ class RenderHomeMiniappTests(unittest.IsolatedAsyncioTestCase):
                 effective_role=role,
                 is_reseller_bot=is_reseller_bot,
                 reseller_owner_id=9 if is_reseller_bot else None,
+                seed_reply_kb=True,
             )
-        return message, send_last, seed
+        return message, seed
 
-    async def test_user_welcome_uses_send_last_no_keyboard_emoji_seed(self):
+    async def test_user_welcome_carries_mini_no_filler_seed(self):
         ui = {"welcome_text": "سلام", "shop_title": "فروشگاه", "btn_miniapp": "مینی اپ"}
         main_kb = MagicMock(name="MAIN_REPLY")
         mini_kb = MagicMock(name="MINI_INLINE")
-        message, send_last, seed = await self._run_home(
+        message, seed = await self._run_home(
             role="user",
             is_reseller_bot=False,
             mini_kb=mini_kb,
             main_kb=main_kb,
             ui=ui,
         )
-        send_last.assert_awaited_once()
-        ahead_list = send_last.await_args.kwargs.get("ahead")
-        self.assertIsNotNone(ahead_list)
-        self.assertEqual(ahead_list[0][1], mini_kb)
-        self.assertEqual(ahead_list[0][0], "\u3164")
-        self.assertNotIn("⌨️", ahead_list[0][0])
-        self.assertIs(send_last.await_args.args[2], main_kb)
+        message.answer.assert_awaited_once()
+        call = message.answer.await_args
+        self.assertEqual(call.args[0], "HOME_TEXT")
+        self.assertIs(call.kwargs.get("reply_markup"), mini_kb)
         seed.assert_not_awaited()
-        message.answer.assert_not_awaited()
 
-    async def test_admin_also_gets_miniapp_ahead(self):
+    async def test_admin_welcome_carries_mini(self):
         ui = {"shop_title": "فروشگاه", "btn_miniapp": "مینی اپ"}
         main_kb = MagicMock(name="MAIN_REPLY")
         mini_kb = MagicMock(name="MINI_INLINE")
-        _message, send_last, seed = await self._run_home(
+        message, seed = await self._run_home(
             role="admin",
             is_reseller_bot=False,
             mini_kb=mini_kb,
             main_kb=main_kb,
             ui=ui,
         )
-        send_last.assert_awaited_once()
-        ahead_list = send_last.await_args.kwargs.get("ahead")
-        self.assertEqual(ahead_list[0][1], mini_kb)
+        self.assertIs(message.answer.await_args.kwargs.get("reply_markup"), mini_kb)
         seed.assert_not_awaited()
 
     async def test_reseller_on_platform_bot_gets_miniapp(self):
         ui = {"shop_title": "فروشگاه", "btn_miniapp": "مینی اپ"}
         main_kb = MagicMock(name="MAIN_REPLY")
         mini_kb = MagicMock(name="MINI_INLINE")
-        # On platform bot, reseller role still sees customer welcome path when
-        # effective_role is user-like; when effective_role is reseller on main
-        # bot they still get mini (not a shop bot).
-        _message, send_last, seed = await self._run_home(
+        message, seed = await self._run_home(
             role="reseller",
             is_reseller_bot=False,
             mini_kb=mini_kb,
             main_kb=main_kb,
             ui=ui,
         )
-        send_last.assert_awaited_once()
-        self.assertEqual(send_last.await_args.kwargs["ahead"][0][1], mini_kb)
+        self.assertIs(message.answer.await_args.kwargs.get("reply_markup"), mini_kb)
         seed.assert_not_awaited()
 
     async def test_shop_bot_skips_miniapp(self):
         ui = {"welcome_text": "سلام", "shop_title": "فروشگاه", "menu_order": "shop"}
         main_kb = MagicMock(name="MAIN_REPLY")
-        message, send_last, seed = await self._run_home(
+        message, seed = await self._run_home(
             role="user",
             is_reseller_bot=True,
             mini_kb=MagicMock(name="SHOULD_NOT"),
             main_kb=main_kb,
             ui=ui,
         )
-        send_last.assert_not_awaited()
         seed.assert_not_awaited()
         message.answer.assert_awaited_once()
         self.assertIs(message.answer.await_args.kwargs.get("reply_markup"), main_kb)
 
-    async def test_no_mini_when_disabled_single_welcome(self):
+    async def test_no_mini_when_disabled_welcome_carries_reply(self):
         ui = {"welcome_text": "سلام", "shop_title": "فروشگاه"}
         main_kb = MagicMock(name="MAIN_REPLY")
-        message, send_last, seed = await self._run_home(
+        message, seed = await self._run_home(
             role="user",
             is_reseller_bot=False,
             mini_kb=None,
             main_kb=main_kb,
             ui=ui,
         )
-        send_last.assert_not_awaited()
         seed.assert_not_awaited()
         self.assertIs(message.answer.await_args.kwargs.get("reply_markup"), main_kb)
 

@@ -120,11 +120,10 @@ async def render_home(
 
     # Welcome Mini App: platform bot + HTTPS only (all roles — admin/reseller/user).
     # Shop bots never get it (initData HMAC is the main bot token).
-    # Telegram forbids Reply+Inline on one message and leaves initData empty for
-    # ReplyKeyboard web_app — so Mini App is an ahead inline bubble, then welcome
-    # carries the lasting ReplyKeyboard (never a filler «⌨️» chrome message).
-    from app.bot.tg_utils import send_reply_keyboard_last
-
+    # Telegram forbids Reply+Inline on one message. Put Mini App *on* the welcome
+    # (same as menu:home edit). ReplyKeyboard persists from a prior lasting
+    # carrier — never send a filler «⌨️»/blank bubble under /start.
+    # When Mini App is off, welcome itself carries the lasting ReplyKeyboard.
     mini_markup = None
     if not is_reseller_bot:
         mini_markup = kb.miniapp_inline_keyboard(ui)
@@ -133,7 +132,6 @@ async def render_home(
         from aiogram.exceptions import TelegramBadRequest
 
         try:
-            # Edit path: keep/clear welcome inline; ReplyKeyboard already lasting.
             await message.edit_text(text, reply_markup=mini_markup, **home_send_kw)
             return
         except TelegramBadRequest as e:
@@ -147,44 +145,16 @@ async def render_home(
                 await message.delete()
             except Exception:
                 pass
-        if mini_markup is not None:
-            await send_reply_keyboard_last(
-                message,
-                text,
-                reply_kb,
-                ahead=[(_miniapp_ahead_text(ui), mini_markup)],
-                **home_send_kw,
-            )
-        else:
-            await message.answer(text, reply_markup=reply_kb, **home_send_kw)
-        return
 
     if mini_markup is not None:
-        await send_reply_keyboard_last(
-            message,
-            text,
-            reply_kb,
-            ahead=[(_miniapp_ahead_text(ui), mini_markup)],
-            **home_send_kw,
-        )
+        await message.answer(text, reply_markup=mini_markup, **home_send_kw)
     else:
         await message.answer(text, reply_markup=reply_kb, **home_send_kw)
     _ = seed_reply_kb
 
 
-def _miniapp_ahead_text(ui: dict | None = None) -> str:
-    """Carrier text for the Mini App inline bubble.
-
-    Telegram rejects truly empty text; Hangul Filler (U+3164) is accepted and
-    renders as a blank bubble so only the inline Mini App button is visible.
-    ``ui`` is unused — kept for call-site symmetry / future labels.
-    """
-    _ = ui
-    return "\u3164"
-
-
 async def seed_main_reply_kb(message: Message, reply_kb, *, tip: str = "·") -> None:
-    """Legacy helper — prefer ``send_reply_keyboard_last`` for home/welcome."""
+    """Legacy helper for non-home paths that still need a lasting ReplyKeyboard."""
     from app.bot.tg_utils import attach_reply_keyboard
     from app.bot.nav_inline import is_filler_chrome_text
 
