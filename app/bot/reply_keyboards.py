@@ -154,8 +154,7 @@ def _reply_user_entries(
 
     ``reseller_apply`` appears on the main KB when enabled (platform bot only;
     callers pass ``show_reseller_apply=False`` on shop bots). Also still on
-    support inline. Mini App is a normal text reply action (opens via inline
-    web_app — ReplyKeyboard web_app has empty initData by Telegram design).
+    support inline. Mini App is welcome-inline only (not on ReplyKeyboard).
     """
     entries: list[tuple[str, str]] = []
     for key in _menu_order(ui):
@@ -179,10 +178,6 @@ def _reply_user_entries(
                         _t(ui, "btn_reseller_apply") or "🤝 درخواست نمایندگی",
                     )
                 )
-        elif key == "miniapp":
-            entries.append(
-                (_k.REPLY_ACTION_MINIAPP, _t(ui, "btn_miniapp") or "📱 مینی‌اپ")
-            )
         elif key == "services" and not has_services:
             continue
     if role == Role.RESELLER.value:
@@ -636,26 +631,9 @@ def _topup_method_entries(ui: dict | None = None) -> list[tuple[str, str]]:
 
 
 def _pack_reply_button(action: str, text: str, ui: dict | None) -> KeyboardButton | None:
-    """Build one reply button.
-
-    Mini App must be a normal text button (not KeyboardButton.web_app): Telegram
-    leaves ``initData`` empty for reply-keyboard web_app launches. The reply
-    handler then sends an inline web_app button (which does receive initData).
-    """
+    """Build one reply button (miniapp is welcome-inline, never on ReplyKeyboard)."""
     if action in {"miniapp", getattr(_k, "REPLY_ACTION_MINIAPP", "miniapp")}:
-        from app.config import get_settings
-        from app.services.users import current_shop_reseller_id
-
-        if current_shop_reseller_id():
-            return None
-        settings = get_settings()
-        if not settings.miniapp_enabled:
-            return None
-        url = (settings.miniapp_url or "").strip()
-        if not url.startswith("https://"):
-            return None
-        label = (text or "").strip() or "📱 مینی‌اپ"
-        return _kb(label, action=_k.REPLY_ACTION_MINIAPP, ui=ui)
+        return None
     if not (text or "").strip():
         return None
     return _kb(text, action=action, ui=ui)
@@ -669,7 +647,7 @@ def _pack_reply_rows(
     footer_row: list[str | tuple[str, str]] | None = None,
 ) -> list[list[KeyboardButton]]:
     layout = _menu_layout(ui)
-    items = [(a, t) for a, t in entries if (t or "").strip() or a == "miniapp"]
+    items = [(a, t) for a, t in entries if (t or "").strip()]
     rows: list[list[KeyboardButton]] = []
     if layout == "compact":
         for i in range(0, len(items), 2):
@@ -1051,6 +1029,9 @@ def reply_action_map(
         admin_label = (_t(ui, "btn_admin") or "").strip()
         if admin_label:
             mapping[admin_label] = REPLY_ACTION_ADMIN
+        mini_label = (_t(ui, "btn_miniapp") or "").strip()
+        if mini_label:
+            mapping.setdefault(mini_label, REPLY_ACTION_MINIAPP)
         # Stale / inline-hub labels (leaves then hub groups)
         for key, text in _reply_admin_entries(ui):
             mapping.setdefault((text or "").strip(), key)
@@ -1068,6 +1049,11 @@ def reply_action_map(
             profile=profile if (show_reseller_creds and not is_reseller_bot) else None,
         ):
             mapping[(text or "").strip()] = key
+        # Legacy: stale ReplyKeyboard «مینی‌اپ» still opens the inline path
+        if not is_reseller_bot:
+            mini_label = (_t(ui, "btn_miniapp") or "").strip()
+            if mini_label:
+                mapping.setdefault(mini_label, REPLY_ACTION_MINIAPP)
         # Legacy: reseller-apply label stays mapped even when omitted from main KB
         if map_role == Role.USER.value and not show_reseller_creds:
             apply_label = (_t(ui, "btn_reseller_apply") or "").strip()
