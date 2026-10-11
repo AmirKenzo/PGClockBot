@@ -421,8 +421,8 @@
             {% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_expire_max %}<small class="muted">سقف زنده: {{ (pg_limit_snapshot.per_user_expire_max // 86400) or 1 }} روز</small>{% endif %}
           </label>
           <label class="form-field">حجم (گیگ)
-            <input name="data_limit_gb" type="number" step="0.1" min="0" placeholder="30" />
-            <small class="muted">خالی = نامحدود{% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_data_max %} — سقف زنده: {{ pg_limit_snapshot.per_user_data_max | bytes }}{% endif %}</small>
+            <input name="data_limit_gb" type="number" step="0.1" min="0" placeholder="خالی = نامحدود" />
+            <small class="muted">برای حجم نامحدود فیلد را <b>خالی</b> بگذارید — عدد صفر نامحدود نیست{% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_data_max %} — سقف زنده: {{ pg_limit_snapshot.per_user_data_max | bytes }}{% endif %}</small>
           </label>
         </div>
         <label class="form-field">برچسب دسته (اختیاری)
@@ -508,8 +508,8 @@
             {% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_expire_max %}<small class="muted">سقف زنده: {{ (pg_limit_snapshot.per_user_expire_max // 86400) or 1 }} روز</small>{% endif %}
           </label>
           <label class="form-field">حجم (گیگ)
-            <input name="data_limit_gb" type="number" step="0.1" min="0" value="{% if trial and trial.data_limit_gb is not none %}{{ trial.data_limit_gb }}{% endif %}" placeholder="1" />
-            <small class="muted">خالی = نامحدود{% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_data_max %} — سقف زنده: {{ pg_limit_snapshot.per_user_data_max | bytes }}{% endif %}</small>
+            <input name="data_limit_gb" type="number" step="0.1" min="0" value="{% if trial and trial.data_limit_gb is not none %}{{ trial.data_limit_gb }}{% endif %}" placeholder="خالی = نامحدود" />
+            <small class="muted">برای حجم نامحدود فیلد را <b>خالی</b> بگذارید — عدد صفر نامحدود نیست{% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_data_max %} — سقف زنده: {{ pg_limit_snapshot.per_user_data_max | bytes }}{% endif %}</small>
           </label>
         </div>
         <label class="form-field">حالت ساخت در پاسارگارد
@@ -762,15 +762,17 @@
         <div class="form-row" id="reseller-duration-field">
           <label class="form-field">مدت اشتراک (روز)
             <input name="duration_days" type="number" min="0" value="0" />
-            <small class="muted">۰ = بدون محدودیت زمان</small>
+            <small class="muted">۰ = زمان نامحدود (بدون انقضای اشتراک)</small>
           </label>
         </div>
         <div class="form-row" id="reseller-included-fields">
           <label class="form-field">حجم پایه (گیگ)
             <input name="included_gb" type="number" min="0" value="0" />
+            <small class="muted">۰ = سقف حجم از این پلن اعمال نمی‌شود (نامحدود/حفظ وضعیت فعلی)</small>
           </label>
           <label class="form-field">کاربر پایه
             <input name="included_users" type="number" min="0" value="0" />
+            <small class="muted">۰ = سقف کاربر از این پلن اعمال نمی‌شود</small>
           </label>
         </div>
         <div class="form-row" id="reseller-addon-fields" hidden>
