@@ -118,14 +118,18 @@ async def render_home(
             ui=ui,
         )
 
-    # Mini App on the main ReplyKeyboard is a text action → inline web_app
-    # (ReplyKeyboard web_app has empty initData by Telegram design).
+    # Welcome inline Mini App (platform bot + HTTPS only). Telegram leaves
+    # initData empty for ReplyKeyboard web_app — never put web_app on the KB.
+    mini_markup = None
+    if not is_reseller_bot and effective_role not in {"admin", "reseller"}:
+        mini_markup = kb.miniapp_inline_keyboard(ui)
+
     if edit:
         from aiogram.exceptions import TelegramBadRequest
 
         try:
-            # Inline «بازگشت» — welcome text only (no inline CTAs); reply kb stays.
-            await message.edit_text(text, reply_markup=None, **home_send_kw)
+            # Prefer welcome + miniapp inline; ReplyKeyboard stays from prior seed.
+            await message.edit_text(text, reply_markup=mini_markup, **home_send_kw)
             return
         except TelegramBadRequest as e:
             if "message is not modified" in str(e).lower():
@@ -138,11 +142,20 @@ async def render_home(
                 await message.delete()
             except Exception:
                 pass
-        await message.answer(text, reply_markup=reply_kb, **home_send_kw)
+        if mini_markup is not None:
+            await message.answer(text, reply_markup=mini_markup, **home_send_kw)
+            await seed_main_reply_kb(message, reply_kb)
+        else:
+            await message.answer(text, reply_markup=reply_kb, **home_send_kw)
         return
 
-    # One message: welcome + stable main ReplyKeyboard (no inline CTAs).
-    await message.answer(text, reply_markup=reply_kb, **home_send_kw)
+    if mini_markup is not None:
+        # Two messages: welcome+inline web_app, then lasting ReplyKeyboard seed.
+        await message.answer(text, reply_markup=mini_markup, **home_send_kw)
+        await seed_main_reply_kb(message, reply_kb)
+    else:
+        # One message: welcome + stable main ReplyKeyboard.
+        await message.answer(text, reply_markup=reply_kb, **home_send_kw)
     _ = seed_reply_kb
 
 async def seed_main_reply_kb(message: Message, reply_kb, *, tip: str = "⌨️") -> None:

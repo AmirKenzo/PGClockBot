@@ -321,7 +321,6 @@ MENU_ORDER_LABELS = {
     "loyalty": "باشگاه",
     "referral": "دعوت",
     "reseller_apply": "نمایندگی",
-    "miniapp": "مینی‌اپ",
 }
 
 
@@ -1010,9 +1009,9 @@ async def settings_edit_ask(
         if is_button_label_key(key):
             if key == "btn_miniapp":
                 hint += (
-                    "\n<i>با زدن این دکمه روی کیبورد پایین، یک دکمهٔ اینلاین "
-                    "web_app فرستاده می‌شود (کیبورد پایین web_app مستقیم "
-                    "initData ندارد). Menu کنار چت هم مستقیم باز می‌کند.</i>"
+                    "\n<i>متن دکمهٔ اینلاین مینی‌اپ روی پیام خوش‌آمد (/start). "
+                    "وقتی مینی‌اپ HTTPS فعال باشد نشان داده می‌شود. "
+                    "رنگ از «رنگ‌بندی دکمه‌ها»؛ Menu کنار چت هم مستقیم باز می‌کند.</i>"
                 )
             else:
                 hint += (
