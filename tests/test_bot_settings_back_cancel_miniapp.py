@@ -118,6 +118,20 @@ class SettingsHubBackTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("کیبورد پایین", edit.await_args.args[1])
 
 
+class WholesaleBackKeyboardTests(unittest.TestCase):
+    def test_wholesale_plan_list_back_goes_to_shop_hub(self):
+        from types import SimpleNamespace
+
+        from app.bot.keyboards import wholesale_plans_keyboard
+
+        plan = SimpleNamespace(id=1, name="نامحدود", price=199000, is_trial=False)
+        kb = wholesale_plans_keyboard([plan], {"btn_back": "⬅️ بازگشت"})
+        data = [b.callback_data for row in kb.inline_keyboard for b in row]
+        self.assertIn("shop:list", data)
+        self.assertNotEqual(data[-1], "shop:kind:wholesale")
+        self.assertEqual(kb.inline_keyboard[-1][0].callback_data, "shop:list")
+
+
 class SilentCancelHealTests(unittest.IsolatedAsyncioTestCase):
     async def test_answer_staff_nav_skips_لغو_شد_heal_when_reopening(self):
         from app.bot.nav_chrome import answer_staff_nav

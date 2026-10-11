@@ -1048,9 +1048,9 @@ def wholesale_plans_keyboard(
     plans: list[Plan],
     ui: dict | None = None,
     *,
-    back_callback: str = "shop:kind:wholesale",
+    back_callback: str = "shop:list",
 ) -> InlineKeyboardMarkup:
-    """Wholesale plan names — per-plan color override, else wholesale kind."""
+    """Wholesale plan names — Back returns to shop kind hub (not this screen)."""
     rows = [
         [
             _ikb(
