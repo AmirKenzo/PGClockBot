@@ -1321,6 +1321,17 @@ def pay_methods(order_id: int, ui: dict | None = None) -> InlineKeyboardMarkup:
     rows.append(
         [
             _ikb(
+                _t(ui, "btn_back") or "⬅️ بازگشت",
+                callback_data=f"pay:back:{order_id}",
+                style=_style(ui, "back"),
+                ui=ui,
+                label_key="btn_back",
+            )
+        ]
+    )
+    rows.append(
+        [
+            _ikb(
                 _t(ui, "btn_cancel"),
                 callback_data="menu:home",
                 style=_style(ui, "cancel", fallback="danger"),
@@ -1332,7 +1343,12 @@ def pay_methods(order_id: int, ui: dict | None = None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def services_keyboard(services: list, ui: dict | None = None) -> InlineKeyboardMarkup:
+def services_keyboard(
+    services: list,
+    ui: dict | None = None,
+    *,
+    reseller_capacity_label: str | None = None,
+) -> InlineKeyboardMarkup:
     """Entity names only — actions/back live on reply keyboard."""
     _ = ui
     rows = [
@@ -1344,6 +1360,16 @@ def services_keyboard(services: list, ui: dict | None = None) -> InlineKeyboardM
         ]
         for s in services
     ]
+    if reseller_capacity_label:
+        rows.insert(
+            0,
+            [
+                InlineKeyboardButton(
+                    text=str(reseller_capacity_label)[:64],
+                    callback_data="svc:reseller",
+                )
+            ],
+        )
     if not rows:
         rows = [[InlineKeyboardButton(text="سرویسی نیست", callback_data="svc:list")]]
     return InlineKeyboardMarkup(inline_keyboard=rows)

@@ -34,7 +34,7 @@ def normalize_telegram_ids_csv(raw: str | None) -> str | None:
 
 
 def is_bot_admin_id(profile: ResellerProfile | None, telegram_id: int) -> bool:
-    if not profile:
+    if profile is None or not hasattr(profile, "bot_admin_ids"):
         return False
     from app.services.platform_identity import is_synthetic_telegram_id
 
@@ -64,6 +64,9 @@ async def resolve_reseller_owner_id(
     if db_user.id == reseller_owner_id:
         return int(reseller_owner_id)
     profile = await get_reseller_profile(session, int(reseller_owner_id))
+    # Reject awaitables / mock garbage — only real profiles have bot_admin_ids.
+    if profile is None or not hasattr(profile, "bot_admin_ids"):
+        return None
     if is_bot_admin_id(profile, db_user.telegram_id):
         return int(reseller_owner_id)
     return None
@@ -116,6 +119,27 @@ async def load_reseller_capacity_actor(
     if not profile or not profile.is_active:
         return None, None
     return int(db_user.id), profile
+
+
+async def load_reseller_my_service_profile(
+    session: AsyncSession,
+    db_user: BotUser,
+    *,
+    is_reseller_bot: bool = False,
+    reseller_owner_id: int | None = None,
+) -> ResellerProfile | None:
+    """Active reseller profile with a linked PG admin — shown under My Services."""
+    _owner_id, profile = await load_reseller_capacity_actor(
+        session,
+        db_user,
+        is_reseller_bot=is_reseller_bot,
+        reseller_owner_id=reseller_owner_id,
+    )
+    if profile is None:
+        return None
+    if not (profile.pg_admin_username or "").strip():
+        return None
+    return profile
 
 
 async def effective_menu_role(

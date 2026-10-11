@@ -1173,12 +1173,17 @@ def service_card_keyboard(
 
 
 def services_list_keyboard(
-    services: list, ui: dict | None = None
+    services: list,
+    ui: dict | None = None,
+    *,
+    reseller_capacity_label: str | None = None,
 ) -> InlineKeyboardMarkup:
     """Paginated-ready service list with back-to-home (inline nav)."""
     from app.bot.keyboards import services_keyboard
 
-    base = services_keyboard(services, ui)
+    base = services_keyboard(
+        services, ui, reseller_capacity_label=reseller_capacity_label
+    )
     rows = list(base.inline_keyboard)
     rows.append(
         [

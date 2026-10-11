@@ -248,6 +248,27 @@ async def svc_auto_set(callback: CallbackQuery, session: AsyncSession, db_user: 
         return
     await callback.answer("انتخاب شد و قابلیت روشن شد")
 
+async def _reseller_capacity_list_label(
+    session: AsyncSession,
+    db_user: BotUser,
+    *,
+    is_reseller_bot: bool = False,
+    reseller_owner_id: int | None = None,
+) -> str | None:
+    from app.services.reseller_access import load_reseller_my_service_profile
+    from app.services.resellers import reseller_my_service_list_label
+
+    profile = await load_reseller_my_service_profile(
+        session,
+        db_user,
+        is_reseller_bot=is_reseller_bot,
+        reseller_owner_id=reseller_owner_id,
+    )
+    if profile is None:
+        return None
+    return reseller_my_service_list_label(profile)
+
+
 @router.callback_query(F.data == "svc:list")
 async def svc_list(
     callback: CallbackQuery,
@@ -264,7 +285,13 @@ async def svc_list(
         .order_by(UserService.id.desc())
     )
     services = list(result.scalars().all())
-    if not services:
+    reseller_label = await _reseller_capacity_list_label(
+        session,
+        db_user,
+        is_reseller_bot=is_reseller_bot,
+        reseller_owner_id=reseller_owner_id,
+    )
+    if not services and not reseller_label:
         if callback.message:
             from app.services.rich_text import outbound_setting_text
 
@@ -282,13 +309,59 @@ async def svc_list(
     if callback.message:
         from app.bot.nav_inline import services_list_keyboard
 
-        markup = (
-            services_list_keyboard(services, ui)
+        markup = services_list_keyboard(
+            services, ui, reseller_capacity_label=reseller_label
         )
         await safe_edit_text(
             callback.message,
             "📦 <b>سرویس‌های شما</b>",
             reply_markup=markup,
+        )
+
+
+@router.callback_query(F.data == "svc:reseller")
+async def svc_reseller_view(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    db_user: BotUser,
+    is_reseller_bot: bool = False,
+    reseller_owner_id: int | None = None,
+):
+    """Show reseller PG capacity + remaining volume under My Services."""
+    from app.services.billing import is_payg
+    from app.services.pg_admin_subscription import is_subscription_plan
+    from app.services.reseller_access import load_reseller_my_service_profile
+    from app.services.reseller_capacity import load_reseller_plan
+    from app.services.resellers import format_reseller_my_service_card
+
+    profile = await load_reseller_my_service_profile(
+        session,
+        db_user,
+        is_reseller_bot=is_reseller_bot,
+        reseller_owner_id=reseller_owner_id,
+    )
+    if profile is None:
+        await callback.answer("سرویس نمایندگی یافت نشد", show_alert=True)
+        return
+    await callback.answer()
+    text = await format_reseller_my_service_card(session, profile)
+    plan = await load_reseller_plan(session, profile)
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text="🔄 به‌روزرسانی", callback_data="svc:reseller")],
+    ]
+    if plan is not None and is_subscription_plan(plan) and not is_payg(profile):
+        rows.append(
+            [InlineKeyboardButton(text="♻️ تمدید نمایندگی", callback_data="res:renew")]
+        )
+        rows.append(
+            [InlineKeyboardButton(text="📦 بسته افزونه", callback_data="res:addons")]
+        )
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="svc:list")])
+    if callback.message:
+        await safe_edit_text(
+            callback.message,
+            text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
 
 @router.callback_query(F.data.startswith("svc:view:"))
