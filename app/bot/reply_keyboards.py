@@ -92,6 +92,7 @@ REPLY_ACTION_PG_TEMPLATE = _k.REPLY_ACTION_PG_TEMPLATE
 REPLY_ACTION_PG_USERS = _k.REPLY_ACTION_PG_USERS
 REPLY_ACTION_RESELLER = _k.REPLY_ACTION_RESELLER
 REPLY_ACTION_RESELLER_APPLY = _k.REPLY_ACTION_RESELLER_APPLY
+REPLY_ACTION_GUIDES = _k.REPLY_ACTION_GUIDES
 REPLY_ACTION_RES_ADD_REP = _k.REPLY_ACTION_RES_ADD_REP
 REPLY_ACTION_RES_PREVIEW = _k.REPLY_ACTION_RES_PREVIEW
 REPLY_ACTION_RES_ST_PANEL = _k.REPLY_ACTION_RES_ST_PANEL
@@ -180,6 +181,13 @@ def _reply_user_entries(
         elif key == "miniapp":
             # web_app KeyboardButton — packed specially in _pack_reply_rows
             entries.append(("miniapp", _t(ui, "btn_miniapp") or "📱 مینی‌اپ"))
+        elif key == "guides":
+            entries.append(
+                (
+                    REPLY_ACTION_GUIDES,
+                    _t(ui, "btn_guides") or "📘 آموزش اتصال",
+                )
+            )
         elif key == "services" and not has_services:
             continue
     if role == Role.RESELLER.value:

@@ -246,6 +246,7 @@ MENU_ORDER_LABELS = {
     "support": "پشتیبانی",
     "loyalty": "باشگاه مشتریان",
     "referral": "باشگاه مشتریان",
+    "guides": "آموزش‌ها",
 }
 
 

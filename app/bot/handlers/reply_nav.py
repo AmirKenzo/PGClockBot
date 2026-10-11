@@ -2725,6 +2725,10 @@ async def reply_main_nav(
             is_reseller_bot=is_reseller_bot,
             reseller_owner_id=reseller_owner_id,
         )
+    elif action == kb.REPLY_ACTION_GUIDES:
+        from app.bot.handlers.guides import show_guides_list
+
+        await show_guides_list(message, session, db_user, svc_id=None)
     elif action == kb.REPLY_ACTION_SUPPORT_NEW:
         await open_support_new(message, session, state)
     elif action == kb.REPLY_ACTION_SUPPORT_LIST:

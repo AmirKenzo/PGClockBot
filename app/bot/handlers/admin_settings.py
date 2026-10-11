@@ -322,6 +322,7 @@ MENU_ORDER_LABELS = {
     "referral": "دعوت",
     "reseller_apply": "نمایندگی",
     "miniapp": "مینی‌اپ",
+    "guides": "آموزش‌ها",
 }
 
 
