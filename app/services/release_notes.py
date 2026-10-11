@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.7": [
+        "مینی‌اپ: دکمه کیبورد پایین دیگر web_app مستقیم نیست — با لمس، دکمهٔ اینلاین باز می‌شود تا initData از تلگرام برسد",
+        "مینی‌اپ: روی دکمه‌های web_app دیگر icon_custom_emoji_id گذاشته نمی‌شود",
+        "ریستور: restore/pre-v0.3.7-v0.3.6",
+    ],
     "0.3.6": [
         "ارتقای پایدار: تیپ کانال توسعه (۰٫۳٫۳ تا ۰٫۳٫۶) روی شاخهٔ main به‌عنوان نسخهٔ پایدار منتشر شد",
         "کیبورد: بعد از تغییر متن دکمه‌ها، برچسب‌های قبلی همچنان کار می‌کنند (alias)",
