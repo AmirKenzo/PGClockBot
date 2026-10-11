@@ -30,6 +30,8 @@ def main() -> None:
         "PUBLIC_BASE_URL",
         "CURRENCY",
         "DEFAULT_LOCALE",
+        "UPDATE_CHANNEL",
+        "DEPLOYED_CHANNEL",
     ]
     lines: list[str] = []
     for key in order:

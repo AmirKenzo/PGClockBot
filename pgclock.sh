@@ -24,9 +24,12 @@ if [[ ! -t 0 ]]; then
 fi
 unset _CMD
 
-R=$'\033[0;31m'; G=$'\033[0;32m'; C=$'\033[0;36m'
+R=$'\033[0;31m'; G=$'\033[0;32m'
+# Accent: orange (replaces former cyan/blue)
+O=$'\033[38;5;208m'; C=$'\033[38;5;208m'
 Y=$'\033[1;33m'; B=$'\033[1;37m'; D=$'\033[2m'; N=$'\033[0m'
 BOLD=$'\033[1m'
+DIM_LINE=$'\033[38;5;240m'
 
 # Prefer /dev/tty so menus stay clean when stdout is captured; fall back so
 # SUCCESS banners still appear under curl|bash / no-TTY edge cases.
@@ -1248,6 +1251,138 @@ env_get() {
   printf '%s\n' "$val"
 }
 
+env_upsert() {
+  # Set KEY=value in .env (create file if missing). Values are double-quoted.
+  local key="$1"
+  local val="${2:-}"
+  local py="${PY:-}"
+  if [[ -z "$py" || ! -x "$py" ]]; then
+    py="${SYSTEM_PY:-python3}"
+  fi
+  KEY="$key" VAL="$val" "$py" - <<'PY'
+import os, re
+from pathlib import Path
+path = Path(".env")
+key = os.environ["KEY"]
+val = os.environ.get("VAL", "").replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+line = f'{key}="{val}"'
+text = path.read_text(encoding="utf-8") if path.exists() else ""
+if re.search(rf"^{re.escape(key)}=", text, flags=re.M):
+    text = re.sub(rf"^{re.escape(key)}=.*$", line, text, count=1, flags=re.M)
+else:
+    text = text.rstrip("\n") + ("\n" if text else "") + line + "\n"
+path.write_text(text, encoding="utf-8")
+path.chmod(0o600)
+PY
+}
+
+normalize_channel() {
+  local raw="${1:-}"
+  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  case "$raw" in
+    dev|develop|development|unstable) printf 'dev' ;;
+    main|master|stable|prod|production|"") printf 'main' ;;
+    *) printf 'main' ;;
+  esac
+}
+
+# INSTALL_CHANNEL is set by prompt_install_channel / env (main|dev).
+prompt_install_channel() {
+  # Prefer explicit env (non-interactive / get.sh).
+  local from_env="${PGCLOCK_CHANNEL:-${PGCLOCK_BRANCH:-}}"
+  if [[ -n "$from_env" ]]; then
+    INSTALL_CHANNEL="$(normalize_channel "$from_env")"
+    ok "Update channel: ${INSTALL_CHANNEL}"
+    return 0
+  fi
+  local default_ch
+  default_ch="$(normalize_channel "$(env_get DEPLOYED_CHANNEL "$(env_get UPDATE_CHANNEL main)")")"
+  if [[ ! -r /dev/tty ]]; then
+    INSTALL_CHANNEL="$default_ch"
+    ok "Update channel: ${INSTALL_CHANNEL} (non-interactive)"
+    return 0
+  fi
+  step "Update channel"
+  printf '    %s1%s) Stable       — branch main (recommended)\n' "$B" "$N" > /dev/tty
+  printf '    %s2%s) Development  — branch dev (newer, may be unstable)\n' "$B" "$N" > /dev/tty
+  local choice=""
+  while true; do
+    prompt_read choice "  ${B}Select channel${N} ${D}[${default_ch}]${N}: "
+    choice="${choice:-$default_ch}"
+    case "$choice" in
+      1|main|stable|s) INSTALL_CHANNEL="main"; break ;;
+      2|dev|development|d) INSTALL_CHANNEL="dev"; break ;;
+      *)
+        if [[ "$(normalize_channel "$choice")" == "dev" ]]; then
+          INSTALL_CHANNEL="dev"; break
+        fi
+        if [[ "$(normalize_channel "$choice")" == "main" && "$choice" != "" ]]; then
+          INSTALL_CHANNEL="main"; break
+        fi
+        err "Choose 1 (main) or 2 (dev)."
+        ;;
+    esac
+  done
+  ok "Update channel: ${INSTALL_CHANNEL}"
+}
+
+persist_channel_env() {
+  local ch
+  ch="$(normalize_channel "${1:-${INSTALL_CHANNEL:-main}}")"
+  env_upsert UPDATE_CHANNEL "$ch"
+  env_upsert DEPLOYED_CHANNEL "$ch"
+  ok "Channel saved in .env: ${ch}"
+}
+
+sync_code_to_channel() {
+  local ch
+  ch="$(normalize_channel "${1:-${INSTALL_CHANNEL:-main}}")"
+  if [[ ! -d .git ]]; then
+    warn "Not a git repo — skipped channel sync (using files on disk)."
+    return 0
+  fi
+  info "Syncing code to origin/${ch}…"
+  git remote get-url origin >/dev/null 2>&1 || \
+    git remote add origin "https://github.com/Mrclocks/PGClockBot.git" 2>/dev/null || true
+  if ! timeout 120 git fetch --no-tags --prune origin "$ch" 2>/dev/null; then
+    err "Could not fetch origin/${ch}. Check network / GitHub access."
+    return 1
+  fi
+  if ! git rev-parse --verify "origin/${ch}" >/dev/null 2>&1; then
+    err "Remote branch origin/${ch} not found."
+    return 1
+  fi
+  # Keep runtime files; hard-sync tree to the channel tip.
+  git checkout -f -B "$ch" "origin/${ch}"
+  git reset --hard "origin/${ch}"
+  git clean -fd --exclude=.env --exclude=data --exclude=.venv --exclude='.env.bak.*' \
+    --exclude='.env.restored.*' >/dev/null 2>&1 || true
+  ok "Code synced to origin/${ch}"
+}
+
+panel_is_installed() {
+  [[ -f .env ]]
+}
+
+read_hw_summary() {
+  # Prints: "<mem_gib_approx> <cores>"
+  local mem_kb=0 cores=1
+  if [[ -r /proc/meminfo ]]; then
+    mem_kb="$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || echo 0)"
+  fi
+  cores="$(nproc 2>/dev/null || echo 1)"
+  [[ -z "$cores" || "$cores" -lt 1 ]] && cores=1
+  local mem_mib=$(( mem_kb / 1024 ))
+  printf '%s %s' "$mem_mib" "$cores"
+}
+
+hw_is_minimal() {
+  # Warn when ≈1 GiB RAM and a single CPU core (small VPS class).
+  local mem_mib=0 cores=1
+  read -r mem_mib cores <<<"$(read_hw_summary)"
+  [[ "$cores" -eq 1 && "$mem_mib" -le 1100 ]]
+}
+
 write_env_file() {
   local py="${PY:-}"
   if [[ -z "$py" || ! -x "$py" ]]; then
@@ -1265,6 +1400,8 @@ write_env_file() {
   WEB_ADMIN_USER="$WEB_ADMIN_USER" \
   PUBLIC_BASE_URL="$PUBLIC_BASE_URL" \
   CURRENCY="$CURRENCY" \
+  UPDATE_CHANNEL="$(normalize_channel "${INSTALL_CHANNEL:-main}")" \
+  DEPLOYED_CHANNEL="$(normalize_channel "${INSTALL_CHANNEL:-main}")" \
   "$py" - <<'PY'
 import json, os, subprocess, sys
 from pathlib import Path
@@ -1287,6 +1424,8 @@ payload = {
     "PUBLIC_BASE_URL": os.environ.get("PUBLIC_BASE_URL", ""),
     "CURRENCY": os.environ.get("CURRENCY", "Toman"),
     "DEFAULT_LOCALE": "fa",
+    "UPDATE_CHANNEL": os.environ.get("UPDATE_CHANNEL", "main").strip() or "main",
+    "DEPLOYED_CHANNEL": os.environ.get("DEPLOYED_CHANNEL", "main").strip() or "main",
 }
 db_url = payload["DATABASE_URL"]
 if not db_url.startswith(("postgresql://", "postgresql+asyncpg://", "postgres://")):
@@ -1396,7 +1535,7 @@ restart_service_if_any() {
 
 # ── actions ─────────────────────────────────────────────
 cmd_install() {
-  banner
+  banner_small "Install"
   require_ubuntu_22_plus || return 1
   ensure_apt_packages || return 1
   ensure_python || return 1
@@ -1417,6 +1556,12 @@ cmd_install() {
   INSTALL_SSL_MODE="none"
   INSTALL_SSL_DOMAIN=""
   INSTALL_SSL_EMAIL=""
+  INSTALL_CHANNEL="main"
+
+  prompt_install_channel || return 1
+  sync_code_to_channel "$INSTALL_CHANNEL" || return 1
+  # Re-resolve interpreter after possible channel sync (venv may need recreate).
+  ensure_python || return 1
 
   local fresh=0
   if [[ -f .env ]]; then
@@ -1439,6 +1584,7 @@ cmd_install() {
   if [[ "$fresh" -eq 1 ]]; then
     step "Scaffold configuration"
     write_env_file
+    persist_channel_env "$INSTALL_CHANNEL"
     rm -f data/web_admin.json data/setup_complete.flag data/setup_in_progress.flag \
       data/setup_gate.token data/setup_gate.json data/setup_entry.url 2>/dev/null || true
     ok ".env scaffold written · PostgreSQL · finish setup in the browser"
@@ -1465,6 +1611,8 @@ PY
       ok "Synced DATABASE_URL into existing .env"
     fi
   fi
+  # Keep channel keys in sync even when reusing an existing .env.
+  persist_channel_env "$INSTALL_CHANNEL"
 
   # Critical: loopback bind makes every public Setup URL fail (ERR_EMPTY_RESPONSE).
   ensure_public_web_host
@@ -1645,31 +1793,10 @@ cmd_update() {
   cp -a .env ".env.bak.$(date +%Y%m%d%H%M%S)"
   ok ".env backup created"
 
-  if [[ -d .git ]]; then
-    info "Pulling latest code from GitHub..."
-    local branch
-    branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
-    if [[ "$branch" == "HEAD" ]]; then
-      branch="main"
-    fi
-    # Targeted fetch (no tags / no --all) — much faster on weak VPS links
-    if ! timeout 120 git fetch --no-tags --prune origin "$branch" 2>/dev/null; then
-      timeout 120 git fetch --no-tags --prune origin main || true
-      branch="main"
-    fi
-    if git pull --ff-only origin "$branch" 2>/dev/null || git pull --ff-only 2>/dev/null; then
-      ok "Code updated (branch: ${branch})"
-    else
-      warn "Fast-forward failed — syncing hard to origin/main (keeps .env + data)"
-      git fetch --no-tags --prune origin main || true
-      git checkout -f -B main origin/main
-      git reset --hard origin/main
-      git clean -fd --exclude=.env --exclude=data --exclude=.venv --exclude='.env.bak.*'
-      ok "Code synced to origin/main"
-    fi
-  else
-    warn "Not a git repo — skipped git pull."
-  fi
+  INSTALL_CHANNEL="main"
+  prompt_install_channel || return 1
+  sync_code_to_channel "$INSTALL_CHANNEL" || return 1
+  persist_channel_env "$INSTALL_CHANNEL"
 
   ensure_python || return 1
   ensure_venv || return 1
@@ -2079,12 +2206,12 @@ cmd_doctor() {
 cmd_help() {
   cat <<EOF
 
-  PGClockBot manager
+  MrClockBot manager (PGClockBot)
 
   Usage:
     bash pgclock.sh                 Interactive menu
-    bash pgclock.sh install         Silent install (config via /setup wizard)
-    bash pgclock.sh update          Update code + deps
+    bash pgclock.sh install         Install (channel via prompt or env)
+    bash pgclock.sh update          Update code + deps (channel selectable)
     bash pgclock.sh env             Edit .env
     bash pgclock.sh web             Web panel tools
     bash pgclock.sh service         systemd controls
@@ -2093,6 +2220,10 @@ cmd_help() {
     bash pgclock.sh uninstall       Remove service / data
     bash pgclock.sh help            This help
 
+  Channel (stable=main · development=dev):
+    PGCLOCK_CHANNEL=dev bash pgclock.sh install
+    PGCLOCK_BRANCH=dev  bash get.sh
+
   Global CLI (after install):
     pgclock status|start|stop|restart|logs|health
     pgclock backup|restore|migrate|doctor [--json]
@@ -2100,6 +2231,7 @@ cmd_help() {
 
   One-liner (clone OR update existing folder, then menu):
     bash <(curl -fsSL https://raw.githubusercontent.com/Mrclocks/PGClockBot/main/get.sh)
+    PGCLOCK_BRANCH=dev bash <(curl -fsSL https://raw.githubusercontent.com/Mrclocks/PGClockBot/dev/get.sh)
 
   Inside the project:
     bash get.sh
@@ -2111,15 +2243,17 @@ EOF
 # ── UI ──────────────────────────────────────────────────
 banner() {
   {
-    printf '%s\n' "$C"
+    echo ""
+    printf '%s' "$O"
     cat <<'ART'
-   ==========================================
-            P G C l o c k B o t
-        PasarGuard Telegram Shop CLI
-   ==========================================
+      __  __       ____ _            _    ____        _
+     |  \/  |_ __ / ___| | ___   ___| | _| __ )  ___ | |_
+     | |\/| | '__| |   | |/ _ \ / __| |/ /  _ \ / _ \| __|
+     | |  | | |  | |___| | (_) | (__|   <| |_) | (_) | |_
+     |_|  |_|_|   \____|_|\___/ \___|_|\_\____/ \___/ \__|
 ART
     printf '%s\n' "$N"
-    printf '  %sRelease v%s%s\n' "$D" "$(read_app_version)" "$N"
+    printf '  %sPasarGuard Telegram Shop · CLI manager%s\n' "$D" "$N"
     echo ""
   } > /dev/tty
 }
@@ -2127,30 +2261,74 @@ ART
 banner_small() {
   {
     echo ""
-    printf '%s==========================================%s\n' "$C" "$N"
+    printf '%s──────────────────────────────────────────────%s\n' "$O" "$N"
     if [[ -n "${1:-}" ]]; then
-      printf '%s  PGClockBot · %s · v%s%s\n' "$B" "$1" "$(read_app_version)" "$N"
+      printf '%s  MrClockBot%s  ·  %s%s%s  ·  v%s\n' "$O" "$N" "$B" "$1" "$N" "$(read_app_version)"
     else
-      printf '%s  PGClockBot · v%s%s\n' "$B" "$(read_app_version)" "$N"
+      printf '%s  MrClockBot%s  ·  v%s\n' "$O" "$N" "$(read_app_version)"
     fi
-    printf '%s==========================================%s\n' "$C" "$N"
+    printf '%s──────────────────────────────────────────────%s\n' "$O" "$N"
     echo ""
   } > /dev/tty
+}
+
+print_status_box() {
+  local ver install_state channel service_state mem_mib cores
+  ver="$(read_app_version)"
+  if panel_is_installed; then
+    install_state="Installed"
+  else
+    install_state="Not installed"
+  fi
+  if panel_is_installed; then
+    channel="$(normalize_channel "$(env_get DEPLOYED_CHANNEL "$(env_get UPDATE_CHANNEL main)")")"
+  else
+    channel="—"
+  fi
+  if service_installed 2>/dev/null && service_active 2>/dev/null; then
+    service_state="active"
+  elif service_installed 2>/dev/null; then
+    service_state="inactive"
+  else
+    service_state="—"
+  fi
+  read -r mem_mib cores <<<"$(read_hw_summary)"
+  {
+    printf '  %s┌─ Status ─────────────────────────────────┐%s\n' "$DIM_LINE" "$N"
+    printf '  %s│%s  Install : %s%-28s%s %s│%s\n' "$DIM_LINE" "$N" "$B" "$install_state" "$N" "$DIM_LINE" "$N"
+    printf '  %s│%s  Version : %s%-28s%s %s│%s\n' "$DIM_LINE" "$N" "$B" "v${ver}" "$N" "$DIM_LINE" "$N"
+    printf '  %s│%s  Channel : %s%-28s%s %s│%s\n' "$DIM_LINE" "$N" "$B" "$channel" "$N" "$DIM_LINE" "$N"
+    printf '  %s│%s  Service : %s%-28s%s %s│%s\n' "$DIM_LINE" "$N" "$B" "$service_state" "$N" "$DIM_LINE" "$N"
+    printf '  %s│%s  Host    : %s%-28s%s %s│%s\n' "$DIM_LINE" "$N" "$D" "${mem_mib} MiB RAM · ${cores} CPU" "$N" "$DIM_LINE" "$N"
+    printf '  %s└──────────────────────────────────────────┘%s\n' "$DIM_LINE" "$N"
+    echo ""
+  } > /dev/tty
+  if hw_is_minimal; then
+    {
+      printf '  %s! Low resources: 1 CPU and ≈1 GiB RAM detected.%s\n' "$Y" "$N"
+      printf '  %s  Install may be slow or fail (pip / PostgreSQL / panel).%s\n' "$Y" "$N"
+      printf '  %s  A VPS with 2+ GB RAM and 2+ CPU cores is recommended.%s\n' "$Y" "$N"
+      echo ""
+    } > /dev/tty
+  fi
 }
 
 show_menu() {
   clear > /dev/tty 2>/dev/null || printf '\033c' > /dev/tty
   banner
+  print_status_box
   {
-    printf '  %s1)%s Install        Silent install → finish in /setup wizard\n' "$B" "$N"
-    printf '  %s2)%s Update         Pull latest code (keep .env)\n' "$B" "$N"
-    printf '  %s3)%s Edit .env      Change tokens / panel / ports\n' "$B" "$N"
-    printf '  %s4)%s Web panel      URL, password reset, health\n' "$B" "$N"
-    printf '  %s5)%s Service        Status / restart / logs\n' "$B" "$N"
-    printf '  %s6)%s Status         Quick health overview\n' "$B" "$N"
-    printf '  %s7)%s Doctor         Read-only diagnostics (OK/WARN/FAIL)\n' "$B" "$N"
-    printf '  %s8)%s Uninstall      Remove EVERYTHING (full wipe)\n' "$B" "$N"
-    printf '  %s0)%s Exit\n' "$B" "$N"
+    printf '  %sMenu%s\n' "$O" "$N"
+    printf '  %s────%s\n' "$DIM_LINE" "$N"
+    printf '  %s1)%s  Install     Fresh install → finish in /setup wizard\n' "$O" "$N"
+    printf '  %s2)%s  Update      Pull channel tip (keep .env + data)\n' "$O" "$N"
+    printf '  %s3)%s  Edit .env   Tokens, panel URL, ports\n' "$O" "$N"
+    printf '  %s4)%s  Web panel   URL, password reset, health\n' "$O" "$N"
+    printf '  %s5)%s  Service     Status / restart / logs\n' "$O" "$N"
+    printf '  %s6)%s  Status      Quick health overview\n' "$O" "$N"
+    printf '  %s7)%s  Doctor      Read-only diagnostics (OK/WARN/FAIL)\n' "$O" "$N"
+    printf '  %s8)%s  Uninstall   Remove EVERYTHING (full wipe)\n' "$O" "$N"
+    printf '  %s0)%s  Exit\n' "$O" "$N"
     echo ""
   } > /dev/tty
 }
