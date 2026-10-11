@@ -31,7 +31,9 @@
         var type = (el.type || 'text').toLowerCase();
         if (type === 'submit' || type === 'button' || type === 'image' || type === 'reset' || type === 'file') return;
         if ((type === 'checkbox' || type === 'radio') && !el.checked) return;
-        out.push([el.name, el.value]);
+        const value = el.hasAttribute('data-money') && typeof window.normalizePanelNumberText === 'function'
+          ? window.normalizePanelNumberText(el.value) : el.value;
+        out.push([el.name, value]);
       });
       return out;
     }
@@ -1261,10 +1263,25 @@
       } catch (e) {
         scroll = Array.from(panel.children).find((c) => c.classList && c.classList.contains('ui-modal-scroll')) || null;
       }
+      /* User-edit only: keep title/close outside the scrollport so the thumb
+         never paints over chrome. Every other modal wraps all children (pre-#586). */
+      const userEditOnly = modal && modal.id === 'modal-user-edit';
+      const keepOutsideScroll = (node) => {
+        if (!userEditOnly || !node || !node.classList) return false;
+        return node.classList.contains('ui-modal-head');
+      };
       if (!scroll) {
         scroll = document.createElement('div');
         scroll.className = 'ui-modal-scroll';
-        while (panel.firstChild) scroll.appendChild(panel.firstChild);
+        if (userEditOnly) {
+          const toMove = [];
+          Array.from(panel.children).forEach((child) => {
+            if (!keepOutsideScroll(child)) toMove.push(child);
+          });
+          toMove.forEach((child) => scroll.appendChild(child));
+        } else {
+          while (panel.firstChild) scroll.appendChild(panel.firstChild);
+        }
         panel.appendChild(scroll);
       }
       /* Marks panel so CSS can put padding/gap on .ui-modal-scroll while the
@@ -2637,6 +2654,9 @@
         if (!form.hasAttribute('data-confirm')) return;
         e.preventDefault();
         e.stopPropagation();
+        /* collectFormFields skips submit controls — keep the clicked button's
+           name/value (e.g. wallet mode=credit|debit) across the confirm modal. */
+        const submitter = e.submitter;
         const opts = readOpts(form, form);
         window.panelConfirm(opts).then((result) => {
           if (!result || !result.ok) return;
@@ -2645,6 +2665,9 @@
           /* Body-level POST with reason from JS memory — not form.submit() inside
              a display:none kebab menu (drops fields on mobile WebKit). */
           const overrides = {};
+          if (submitter && submitter.name) {
+            overrides[submitter.name] = submitter.value || '1';
+          }
           if (opts.requireReason) {
             const reasonText = String((result && result.reason) || '').trim();
             if (!reasonText) return;
@@ -2732,9 +2755,16 @@
           el.setAttribute('dir', el.getAttribute('dir') || 'ltr');
           el.setAttribute('autocomplete', el.getAttribute('autocomplete') || 'off');
         });
+        (root || document).querySelectorAll('input[data-money]').forEach((el) => {
+          window.PanelMoney.formatMoneyInput(el, normalizeNumberText);
+        });
       }
-      function applyNormalize(el){
+      function applyNormalize(el, forSubmit = false){
         if (!isNumericField(el)) return;
+        if (el.hasAttribute('data-money') && !forSubmit) {
+          window.PanelMoney.formatMoneyInput(el, normalizeNumberText);
+          return;
+        }
         const next = normalizeNumberText(el.value);
         if (next !== el.value) el.value = next;
       }
@@ -2749,10 +2779,32 @@
       document.addEventListener('change', (e) => {
         applyNormalize(e.target);
       }, true);
+      document.addEventListener('input', (e) => {
+        if (!e.isComposing && e.target.hasAttribute('data-money')) applyNormalize(e.target);
+      }, true);
+      document.addEventListener('compositionend', (e) => {
+        if (e.target.hasAttribute('data-money')) applyNormalize(e.target);
+      }, true);
+      document.addEventListener('focus', (e) => {
+        if (e.target.hasAttribute('data-money')) applyNormalize(e.target);
+      }, true);
+      document.addEventListener('formdata', (e) => {
+        e.target.querySelectorAll('input[data-money]').forEach((el) => {
+          if (!el.disabled && el.name && e.formData.has(el.name)) {
+            e.formData.set(el.name, normalizeNumberText(el.value));
+          }
+        });
+      });
+      document.addEventListener('reset', (e) => {
+        setTimeout(() => unlockNumberInputs(e.target), 0);
+      }, true);
       document.addEventListener('submit', (e) => {
         const form = e.target;
         if (!(form instanceof HTMLFormElement)) return;
-        form.querySelectorAll('input').forEach(applyNormalize);
+        form.querySelectorAll('input').forEach((el) => applyNormalize(el, true));
+        setTimeout(() => {
+          if (e.defaultPrevented) unlockNumberInputs(form);
+        }, 0);
       }, true);
     })();
 
@@ -3222,6 +3274,163 @@
               row.remove();
               if (!list.querySelector('[data-supports-row]')) {
                 const add = list.querySelector('[data-supports-add]');
+                if (add) add.insertAdjacentHTML('beforebegin', rowHtml({}));
+              }
+              sync(root);
+            }
+          }
+        });
+        root.addEventListener('input', () => sync(root));
+        root.addEventListener('change', () => sync(root));
+      });
+    })();
+
+    /* Connection guides editor (تنظیمات ← آموزش اتصال) */
+    (function () {
+      function uid() {
+        return Math.random().toString(16).slice(2, 10) + Math.random().toString(16).slice(2, 6);
+      }
+      function parseJson(raw) {
+        try {
+          const data = JSON.parse(raw || '[]');
+          return Array.isArray(data) ? data : [];
+        } catch (_) {
+          return [];
+        }
+      }
+      function esc(v) {
+        return String(v == null ? '' : v)
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+      function styleSelectHtml(cur) {
+        const val = cur == null ? 'primary' : String(cur);
+        const tone = !val ? 'default' : val;
+        const opts = [
+          ['', 'سفید', 'default'],
+          ['primary', 'آبی', 'primary'],
+          ['success', 'سبز', 'success'],
+          ['danger', 'قرمز', 'danger'],
+        ];
+        let html =
+          '<div class="plan-color-field item-color-field pay-dest-color">' +
+            '<div class="btn-color-card plan-color-card">' +
+              '<span class="btn-color-label">رنگ دکمه</span>' +
+              '<select class="btn-color-select guides-style" data-tone="' + tone + '" aria-label="رنگ دکمه">' ;
+        opts.forEach(function (o) {
+          html +=
+            '<option value="' + o[0] + '" data-tone="' + o[2] + '"' +
+            (val === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+        });
+        html += '</select></div></div>';
+        return html;
+      }
+      function rowHtml(item) {
+        const id = (item && item.id) || uid();
+        const enabled = !item || item.enabled === undefined || item.enabled === null
+          ? true
+          : !!item.enabled;
+        const audience = (item && item.audience) === 'reseller' ? 'reseller' : 'user';
+        const deep = !!(item && item.deep_link);
+        const style = item && item.style != null ? item.style : (item && item.button_style != null ? item.button_style : 'primary');
+        return (
+          '<div class="pay-dest-row" data-guides-row data-guides-id="' + esc(id) + '">' +
+            '<div class="pay-dest-fields supports-fields-grid">' +
+              '<label>عنوان دکمه<input type="text" class="guides-title" maxlength="64" value="' + esc(item && item.title) + '" placeholder="مثلاً V2Box" autocomplete="off" /></label>' +
+              '<label>مخاطب<select class="guides-audience">' +
+                '<option value="user"' + (audience === 'user' ? ' selected' : '') + '>کاربران</option>' +
+                '<option value="reseller"' + (audience === 'reseller' ? ' selected' : '') + '>نمایندگان</option>' +
+              '</select></label>' +
+              '<label>ترتیب<input type="number" class="guides-sort" dir="ltr" value="' + esc(item && item.sort != null ? item.sort : 0) + '" /></label>' +
+              '<label class="support-enabled supports-enabled-field">' +
+                '<span>فعال</span>' +
+                '<span class="ui-switch">' +
+                  '<input type="checkbox" class="guides-enabled" value="1"' + (enabled ? ' checked' : '') + ' />' +
+                  '<span class="ui-switch-track" aria-hidden="true"></span>' +
+                '</span>' +
+              '</label>' +
+              '<label class="support-enabled supports-enabled-field">' +
+                '<span>دکمه لینک اشتراک</span>' +
+                '<span class="ui-switch">' +
+                  '<input type="checkbox" class="guides-deeplink" value="1"' + (deep ? ' checked' : '') + ' />' +
+                  '<span class="ui-switch-track" aria-hidden="true"></span>' +
+                '</span>' +
+              '</label>' +
+              styleSelectHtml(style) +
+              '<label class="full">متن آموزش<textarea class="guides-body" rows="4" maxlength="4000" placeholder="مراحل اتصال…">' + esc(item && (item.body || item.text)) + '</textarea></label>' +
+            '</div>' +
+            '<button type="button" class="btn btn-danger btn-sm guides-remove pay-dest-remove-btn">حذف</button>' +
+          '</div>'
+        );
+      }
+      function addBtnHtml() {
+        return '<button type="button" class="pay-dest-add-row" data-guides-add><span aria-hidden="true">+</span><span>افزودن آموزش</span></button>';
+      }
+      function sync(root) {
+        const hidden = root.querySelector('[data-guides-json]');
+        const list = root.querySelector('[data-guides-list]');
+        if (!hidden || !list) return;
+        const entries = [];
+        list.querySelectorAll('[data-guides-row]').forEach((row, idx) => {
+          const rowId = row.getAttribute('data-guides-id') || uid();
+          row.setAttribute('data-guides-id', rowId);
+          const title = String((row.querySelector('.guides-title') || {}).value || '').trim();
+          const body = String((row.querySelector('.guides-body') || {}).value || '').trim();
+          if (!title && !body) return;
+          let sort = idx;
+          try {
+            sort = parseInt(String((row.querySelector('.guides-sort') || {}).value || idx), 10);
+            if (Number.isNaN(sort)) sort = idx;
+          } catch (_) { sort = idx; }
+          const en = row.querySelector('.guides-enabled');
+          const dl = row.querySelector('.guides-deeplink');
+          const aud = row.querySelector('.guides-audience');
+          const styleSel = row.querySelector('.guides-style');
+          entries.push({
+            id: rowId,
+            title: title,
+            body: body,
+            audience: aud && aud.value === 'reseller' ? 'reseller' : 'user',
+            sort: sort,
+            enabled: !!(en && en.checked),
+            deep_link: !!(dl && dl.checked),
+            style: styleSel ? styleSel.value : 'primary',
+          });
+        });
+        hidden.value = JSON.stringify(entries);
+      }
+      function render(root, items) {
+        const list = root.querySelector('[data-guides-list]');
+        if (!list) return;
+        const rows = (items && items.length ? items : [{}]).map((item) => rowHtml(item)).join('');
+        list.innerHTML = rows + addBtnHtml();
+        sync(root);
+      }
+      document.querySelectorAll('[data-guides-editor]').forEach((root) => {
+        const hidden = root.querySelector('[data-guides-json]');
+        render(root, parseJson(hidden ? hidden.value : '[]'));
+        root.addEventListener('click', (e) => {
+          if (e.target.closest('[data-guides-add]')) {
+            e.preventDefault();
+            const list = root.querySelector('[data-guides-list]');
+            const add = list && list.querySelector('[data-guides-add]');
+            const html = rowHtml({});
+            if (add) add.insertAdjacentHTML('beforebegin', html);
+            else if (list) list.insertAdjacentHTML('afterbegin', html);
+            sync(root);
+            return;
+          }
+          if (e.target.closest('.guides-remove')) {
+            e.preventDefault();
+            const row = e.target.closest('[data-guides-row]');
+            const list = root.querySelector('[data-guides-list]');
+            if (row && list) {
+              row.remove();
+              if (!list.querySelector('[data-guides-row]')) {
+                const add = list.querySelector('[data-guides-add]');
                 if (add) add.insertAdjacentHTML('beforebegin', rowHtml({}));
               }
               sync(root);
@@ -3720,17 +3929,23 @@ const root = document.getElementById('upd-root');
       }
     }
     if (versionFlash && root.dataset.showOps !== '1') {
-      versionFlash.hidden = false;
-      versionFlash.className = 'flash ' + (checkTone === 'ok' ? 'ok' : (checkTone === 'err' ? 'err' : 'warn'));
-      if (checkMsg) {
-        versionFlash.textContent = checkMsg;
-      } else if (info.update_available && !migrationBlocked) {
-        versionFlash.textContent = 'برای کانال ' + chLabel + ' آپدیت جدید هست: ' +
-          (info.version || data.local_version || '') + ' → ' + (info.remote_version || '');
-      } else if (info.checked && !info.update_available) {
-        versionFlash.textContent = 'برای کانال ' + chLabel + ' آپدیت جدیدی نیست — روی آخرین نسخه هستید.';
+      // Migration error already lives in #upd-migration-flash — never mirror it here.
+      if (migrationBlocked) {
+        versionFlash.hidden = true;
+        versionFlash.textContent = '';
       } else {
-        versionFlash.textContent = info.label || ('بررسی آپدیت کانال ' + chLabel + ' ناموفق');
+        versionFlash.hidden = false;
+        versionFlash.className = 'flash ' + (checkTone === 'ok' ? 'ok' : (checkTone === 'err' ? 'err' : 'warn'));
+        if (checkMsg) {
+          versionFlash.textContent = checkMsg;
+        } else if (info.update_available) {
+          versionFlash.textContent = 'برای کانال ' + chLabel + ' آپدیت جدید هست: ' +
+            (info.version || data.local_version || '') + ' → ' + (info.remote_version || '');
+        } else if (info.checked && !info.update_available) {
+          versionFlash.textContent = 'برای کانال ' + chLabel + ' آپدیت جدیدی نیست — روی آخرین نسخه هستید.';
+        } else {
+          versionFlash.textContent = info.label || ('بررسی آپدیت کانال ' + chLabel + ' ناموفق');
+        }
       }
     }
     if (stateEl && root.dataset.showOps !== '1') {

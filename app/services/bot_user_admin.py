@@ -1,6 +1,7 @@
 """Shared admin ops for Telegram bot users (web panel + bot handlers).
 
-Money uses ``credit_wallet`` (platform purse by default; pass shop_id for shop purse).
+Money uses ``credit_wallet`` / ``debit_wallet`` (platform purse by default;
+pass shop_id for shop purse). Never write balances outside those helpers.
 VPN quota/links are live from PasarGuard through ``UserService.pg_user_id``.
 """
 
@@ -27,22 +28,68 @@ from app.services.formatting import (
     status_label_plain,
     time_remaining_label,
 )
+from app.services.numbers import normalize_number_text
 from app.services.pasarguard import (
     absolutize_subscription_url,
     build_user_modify_payload,
     get_pg,
     user_subscription_url,
 )
-from app.services.wallet import credit_wallet
+from app.services.wallet import credit_wallet, debit_wallet
 
 logger = logging.getLogger(__name__)
 
 GB = 1024**3
 MAX_ADMIN_WALLET_CREDIT = 50_000_000  # 50M toman hard cap per op
+MAX_ADMIN_WALLET_DEBIT = MAX_ADMIN_WALLET_CREDIT
+MIN_ADMIN_WALLET_ADJUST = 1_000  # absolute toman floor for manual adjust UI/API
 MAX_EXTEND_DAYS = 3650
 MAX_EXTEND_GB = 10_000
 MIN_TELEGRAM_ID = 1
 MAX_TELEGRAM_ID = 9_007_199_254_740_991  # signed int64 safe upper bound
+
+
+def parse_admin_wallet_amount(text: str | None) -> int:
+    """Parse a positive integer toman amount (no float / no sign).
+
+    Direction (credit vs debit) is chosen separately — never via a leading minus.
+    """
+    raw = normalize_number_text(text).replace("−", "-").replace("–", "-")
+    if not raw:
+        raise ValueError("مبلغ نامعتبر است")
+    if any(ch in raw for ch in ".eE"):
+        raise ValueError("مبلغ باید عدد صحیح تومان باشد")
+    if raw.startswith("+"):
+        raw = raw[1:]
+    if not raw or raw.startswith("-"):
+        raise ValueError("مبلغ باید مثبت باشد؛ نوع عملیات را جداگانه انتخاب کنید")
+    try:
+        amount = int(raw)
+    except ValueError as exc:
+        raise ValueError("مبلغ نامعتبر است") from exc
+    if amount <= 0:
+        raise ValueError("مبلغ باید مثبت باشد")
+    return amount
+
+
+def parse_admin_wallet_mode(raw: str | None) -> str:
+    """Normalize adjust mode to ``credit`` or ``debit``."""
+    mode = (raw or "").strip().lower()
+    if mode in {"credit", "debit"}:
+        return mode
+    # Persian / UI aliases
+    if mode in {"افزایش", "شارژ", "plus", "inc", "increase"}:
+        return "credit"
+    if mode in {"کاهش", "کسر", "minus", "dec", "decrease"}:
+        return "debit"
+    raise ValueError("نوع تنظیم نامعتبر است — افزایش یا کاهش را انتخاب کنید")
+
+
+def _require_admin_wallet_amount(amount: object) -> int:
+    """Reject bool / non-int; return a plain int (bool is a subclass of int)."""
+    if isinstance(amount, bool) or not isinstance(amount, int):
+        raise ValueError("مبلغ نامعتبر است")
+    return int(amount)
 
 
 @dataclass(frozen=True)
@@ -472,7 +519,7 @@ async def admin_provision_service(
         await session.commit()
         await session.refresh(service)
         return service
-    except Exception:
+    except Exception as exc:
         if pg_uid:
             try:
                 await pg.delete_user_by_id(int(pg_uid))
@@ -481,7 +528,21 @@ async def admin_provision_service(
                     "rollback PG user failed uid=%s", pg_uid, exc_info=True
                 )
         await session.rollback()
-        raise
+        from app.services.pasarguard import PasarGuardError
+
+        if isinstance(exc, PasarGuardError):
+            raise ValueError(
+                exc.user_message(
+                    fallback="ساخت کاربر در پاسارگارد ناموفق بود"
+                )
+            ) from exc
+        if isinstance(exc, ValueError):
+            raise
+        from app.services.redact import user_safe_error
+
+        raise ValueError(
+            user_safe_error(exc, fallback="اختصاص پلن ناموفق بود", limit=400)
+        ) from exc
 
 
 async def admin_credit_user_wallet(
@@ -494,7 +555,7 @@ async def admin_credit_user_wallet(
     shop_id: int | None = None,
 ) -> BotUser:
     """Increase platform or shop wallet (admin). Positive amounts only."""
-    amt = int(amount)
+    amt = _require_admin_wallet_amount(amount)
     if amt <= 0:
         raise ValueError("مبلغ شارژ باید مثبت باشد")
     if amt > MAX_ADMIN_WALLET_CREDIT:
@@ -503,6 +564,55 @@ async def admin_credit_user_wallet(
     if note:
         reason = f"{reason}: {note.strip()[:120]}"
     return await credit_wallet(session, user, amt, reason, shop_id=shop_id)
+
+
+async def admin_debit_user_wallet(
+    session: AsyncSession,
+    user: BotUser,
+    amount: int,
+    *,
+    actor: str,
+    note: str | None = None,
+    shop_id: int | None = None,
+) -> BotUser:
+    """Decrease platform or shop wallet (admin). Fail-closed on shortfall."""
+    amt = _require_admin_wallet_amount(amount)
+    if amt <= 0:
+        raise ValueError("مبلغ کسر باید مثبت باشد")
+    if amt > MAX_ADMIN_WALLET_DEBIT:
+        raise ValueError(f"سقف کسر دستی {MAX_ADMIN_WALLET_DEBIT:,} تومان است")
+    reason = f"کسر ادمین ({(actor or 'admin')[:64]})"
+    if note:
+        reason = f"{reason}: {note.strip()[:120]}"
+    return await debit_wallet(session, user, amt, reason, shop_id=shop_id)
+
+
+async def admin_adjust_user_wallet(
+    session: AsyncSession,
+    user: BotUser,
+    amount: int,
+    *,
+    mode: str,
+    actor: str,
+    note: str | None = None,
+    shop_id: int | None = None,
+    min_abs: int = MIN_ADMIN_WALLET_ADJUST,
+) -> BotUser:
+    """Admin adjust: positive ``amount`` + ``mode`` credit|debit (atomic shortfall)."""
+    direction = parse_admin_wallet_mode(mode)
+    amt = _require_admin_wallet_amount(amount)
+    if amt <= 0:
+        raise ValueError("مبلغ باید مثبت باشد")
+    floor = int(min_abs)
+    if floor > 0 and amt < floor:
+        raise ValueError(f"حداقل مبلغ {floor:,} تومان است")
+    if direction == "credit":
+        return await admin_credit_user_wallet(
+            session, user, amt, actor=actor, note=note, shop_id=shop_id
+        )
+    return await admin_debit_user_wallet(
+        session, user, amt, actor=actor, note=note, shop_id=shop_id
+    )
 
 
 async def list_wallet_txs(
@@ -535,6 +645,13 @@ async def get_owned_service(
     return svc
 
 
+def _cache_quota_status(service: UserService, info: dict[str, Any]) -> None:
+    """Remember the panel status so audience queries need no live panel call."""
+    status = info.get("status")
+    if isinstance(status, str):
+        service.quota_status = status.strip().lower()[:32]
+
+
 def sync_service_quota_cache(
     service: UserService,
     info: dict[str, Any] | None = None,
@@ -560,6 +677,7 @@ def sync_service_quota_cache(
 
     touched = False
     if isinstance(info, dict):
+        _cache_quota_status(service, info)
         has_expire = "expire" in info or "expire_date" in info
         if has_expire:
             exp_raw = info["expire"] if "expire" in info else info.get("expire_date")

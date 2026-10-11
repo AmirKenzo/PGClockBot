@@ -20,6 +20,7 @@ from app.db.models import (
     Ticket,
     TicketStatus,
 )
+from app.services.home_overview import reseller_shop_summary
 from app.services.formatting import format_message, format_toman, order_status_fa
 from app.services.reseller_access import load_reseller_actor
 from app.services.resellers import (
@@ -191,10 +192,18 @@ async def res_home(
     callback: CallbackQuery,
     session: AsyncSession,
     db_user: BotUser,
+    state: FSMContext,
     is_reseller_bot: bool = False,
     reseller_owner_id: int | None = None,
 ):
-    # Full panel only on dedicated shop bot — main bot redirects to credentials
+    """Option B: open inline manage hub (same as ``nv:res:home``).
+
+    Full manage panel only on the dedicated shop bot — main bot redirects to
+    credentials (shop isolation).
+    """
+    from app.bot.handlers.reply_nav import open_reseller_home
+
+    # Main bot: never open the shop manage hub — credentials card only.
     if not is_reseller_bot:
         await res_creds(
             callback,
@@ -204,23 +213,18 @@ async def res_home(
             reseller_owner_id=None,
         )
         return
-    owner_id, profile = await _actor(
-        session, db_user, is_reseller_bot=is_reseller_bot, reseller_owner_id=reseller_owner_id
-    )
-    if not owner_id or not profile:
-        await callback.answer("فقط نمایندگان", show_alert=True)
-        return
     await callback.answer()
-    if callback.message:
-        await safe_edit_text(
-            callback.message,
-            format_message("🤝 پنل نماینده", "دسترسی‌ها با وب‌پنل یکسان است — از کیبورد پایین انتخاب کنید."),
-            reply_markup=None,
-        )
-        await callback.message.answer(
-            "پنل نماینده:",
-            reply_markup=kb.reseller_reply_keyboard(profile),
-        )
+    if not callback.message:
+        return
+    await open_reseller_home(
+        callback.message,
+        session,
+        db_user,
+        state,
+        is_reseller_bot=True,
+        reseller_owner_id=reseller_owner_id,
+        push=False,
+    )
 
 
 @router.callback_query(F.data == "res:dash")
@@ -241,34 +245,11 @@ async def res_dash(
         await callback.answer("دسترسی ندارید", show_alert=True)
         return
     await callback.answer()
-    users_n = await session.scalar(
-        select(func.count()).select_from(BotUser).where(BotUser.reseller_id == owner_id)
-    ) or 0
-    orders_n = await session.scalar(
-        select(func.count()).select_from(Order).where(Order.reseller_id == owner_id)
-    ) or 0
-    pending_pay = await session.scalar(
-        select(func.count())
-        .select_from(Payment)
-        .join(BotUser, BotUser.id == Payment.user_id)
-        .where(
-            BotUser.reseller_id == owner_id,
-            Payment.status == PaymentStatus.PENDING.value,
-            Payment.receipt_file_id.is_not(None),
-        )
-    ) or 0
-    open_tickets = await session.scalar(
-        select(func.count())
-        .select_from(Ticket)
-        .outerjoin(BotUser, BotUser.id == Ticket.user_id)
-        .where(
-            or_(
-                Ticket.reseller_id == owner_id,
-                (Ticket.reseller_id.is_(None)) & (BotUser.reseller_id == owner_id),
-            ),
-            Ticket.status.in_([TicketStatus.OPEN.value, TicketStatus.ANSWERED.value]),
-        )
-    ) or 0
+    summary = await reseller_shop_summary(
+        session, int(owner_id), ticket_statuses=(TicketStatus.OPEN.value, TicketStatus.ANSWERED.value),
+    )
+    users_n, orders_n = summary["users"], summary["orders"]
+    pending_pay, open_tickets = summary["pending"], summary["tickets"]
     text = (
         "🏠 <b>خانه نماینده</b>\n\n"
         f"👥 مشتریان: {users_n}\n"
@@ -478,13 +459,19 @@ async def res_user_message_start(
         await callback.answer("دسترسی ندارید", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(ResellerStates.user_message)
     await state.update_data(msg_user_id=int(user.id))
-    if callback.message:
-        await callback.message.answer(
-            f"✉️ متن پیام برای <b>{html.escape(user.full_name or user.username or str(user.telegram_id))}</b>:",
-            reply_markup=kb.cancel_reply(),
-        )
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        callback,
+        state,
+        prompt=(
+            f"✉️ متن پیام برای <b>{html.escape(user.full_name or user.username or str(user.telegram_id))}</b>:"
+        ),
+        cancel_code="rs_msg",
+        fsm_state=ResellerStates.user_message,
+        edit=True,
+    )
 
 
 @router.message(ResellerStates.user_message)
@@ -507,6 +494,17 @@ async def res_user_message_send(
         await message.answer("دسترسی ندارید.")
         return
     if kb.is_cancel_text(message.text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(
+            message,
+            state,
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        ):
+            return
         await state.clear()
         await message.answer("لغو شد.")
         return
@@ -763,6 +761,77 @@ async def res_orders(
         )
 
 
+async def present_reseller_tickets_list(
+    message: Message,
+    session: AsyncSession,
+    db_user: BotUser,
+    *,
+    is_reseller_bot: bool = False,
+    reseller_owner_id: int | None = None,
+    edit: bool = False,
+) -> bool:
+    """Render shop ticket list; returns False when actor/ACL fails."""
+    from app.bot.nav_inline import with_inline_back
+    from app.services.users import get_all_settings
+
+    owner_id, profile = await _actor(
+        session,
+        db_user,
+        is_reseller_bot=is_reseller_bot,
+        reseller_owner_id=reseller_owner_id,
+    )
+    if not owner_id or not profile or not has_bot_perm(profile, "tickets"):
+        return False
+    result = await session.execute(
+        select(Ticket, BotUser)
+        .join(BotUser, BotUser.id == Ticket.user_id)
+        .where(
+            Ticket.status.in_([TicketStatus.OPEN.value, TicketStatus.ANSWERED.value]),
+            or_(
+                Ticket.reseller_id == owner_id,
+                (Ticket.reseller_id.is_(None)) & (BotUser.reseller_id == owner_id),
+            ),
+        )
+        .order_by(Ticket.id.desc())
+        .limit(15)
+    )
+    rows = result.all()
+    ui = await get_all_settings(session)
+    if not rows:
+        markup = with_inline_back(None, ui, "nv:res:home")
+        text = "تیکت بازی از مشتریان نیست."
+    else:
+        lines = ["🎫 <b>تیکت‌های مشتریان</b>\n"]
+        rows_kb: list[list[InlineKeyboardButton]] = []
+        for t, u in rows:
+            who = u.full_name or u.username or str(u.telegram_id)
+            lines.append(f"#{t.id} — {t.subject[:40]} — {who}")
+            rows_kb.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"💬 #{t.id}",
+                        callback_data=f"tkt:reply:{t.id}",
+                    ),
+                    InlineKeyboardButton(
+                        text=f"🗃 بستن #{t.id}",
+                        callback_data=f"tkt:close:{t.id}",
+                    ),
+                ]
+            )
+        lines.append("\nروی دکمه پاسخ بزنید یا تیکت را ببندید.")
+        text = "\n".join(lines)
+        markup = with_inline_back(
+            InlineKeyboardMarkup(inline_keyboard=rows_kb), ui, "nv:res:home"
+        )
+    if edit:
+        await safe_edit_text(message, text, reply_markup=markup)
+    else:
+        from app.bot.nav_inline import present_inline_only
+
+        await present_inline_only(message, text=text, inline=markup)
+    return True
+
+
 @router.callback_query(F.data == "res:tickets")
 async def res_tickets(
     callback: CallbackQuery,
@@ -781,52 +850,113 @@ async def res_tickets(
         await callback.answer("دسترسی ندارید", show_alert=True)
         return
     await callback.answer()
-    result = await session.execute(
-        select(Ticket, BotUser)
-        .join(BotUser, BotUser.id == Ticket.user_id)
-        .where(
-            Ticket.status.in_([TicketStatus.OPEN.value, TicketStatus.ANSWERED.value]),
-            or_(
-                Ticket.reseller_id == owner_id,
-                (Ticket.reseller_id.is_(None)) & (BotUser.reseller_id == owner_id),
-            ),
+    if callback.message:
+        ok = await present_reseller_tickets_list(
+            callback.message,
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+            edit=True,
         )
-        .order_by(Ticket.id.desc())
-        .limit(15)
+        if not ok:
+            await callback.answer("دسترسی ندارید", show_alert=True)
+
+
+@router.callback_query(F.data == "res:cancellations")
+async def res_cancellations(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    db_user: BotUser,
+    is_reseller_bot: bool = False,
+    reseller_owner_id: int | None = None,
+):
+    owner_id, profile = await _actor(
+        session, db_user, is_reseller_bot=is_reseller_bot, reseller_owner_id=reseller_owner_id
     )
-    rows = result.all()
+    if not owner_id or not profile:
+        await callback.answer("فقط نمایندگان", show_alert=True)
+        return
+    await callback.answer()
+    from app.bot.nav_inline import with_inline_back
+    from app.services.service_cancellations import (
+        OPEN_OPERATOR_STATUSES,
+        STATUS_LABELS,
+        list_cancellation_requests,
+    )
+
+    rows, _next = await list_cancellation_requests(session, int(owner_id), limit=40)
+    rows = [(r, u) for r, u in rows if r.status in OPEN_OPERATOR_STATUSES][:20]
+    ui = await get_all_settings(session)
     if not rows:
+        markup = with_inline_back(None, ui, "nv:res:home")
         if callback.message:
             await safe_edit_text(
-                callback.message,
-                "تیکت بازی از مشتریان نیست.",
-                reply_markup=None,
+                callback.message, "درخواست لغو معلقی نیست.", reply_markup=markup
             )
         return
-    lines = ["🎫 <b>تیکت‌های مشتریان</b>\n"]
-    rows_kb: list[list[InlineKeyboardButton]] = []
-    for t, u in rows:
-        who = u.full_name or u.username or str(u.telegram_id)
-        lines.append(f"#{t.id} — {t.subject[:40]} — {who}")
-        rows_kb.append(
+    lines = ["📝 <b>درخواست‌های لغو</b>\n"]
+    kb_rows: list[list[InlineKeyboardButton]] = []
+    for row, pg_user in rows:
+        st = STATUS_LABELS.get(row.status, row.status)
+        who = f" ({html.escape(str(pg_user))})" if pg_user else ""
+        lines.append(f"#{row.id} — سرویس {row.service_id}{who} — {st}")
+        kb_rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"💬 #{t.id}",
-                    callback_data=f"tkt:reply:{t.id}",
-                ),
-                InlineKeyboardButton(
-                    text=f"🗃 بستن #{t.id}",
-                    callback_data=f"tkt:close:{t.id}",
-                ),
+                    text=f"#{row.id}",
+                    callback_data=f"res:cancel:view:{row.id}",
+                )
             ]
         )
-    lines.append("\nروی دکمه پاسخ بزنید یا تیکت را ببندید.")
+    lines.append("\n<i>تأیید/رد در وب‌پنل: /finance?tab=cancellations</i>")
+    markup = with_inline_back(
+        InlineKeyboardMarkup(inline_keyboard=kb_rows), ui, "nv:res:home"
+    )
     if callback.message:
-        await safe_edit_text(
-            callback.message,
-            "\n".join(lines),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows_kb) if rows_kb else None,
-        )
+        await safe_edit_text(callback.message, "\n".join(lines), reply_markup=markup)
+
+
+@router.callback_query(F.data.regexp(r"^res:cancel:view:\d+$"))
+async def res_cancellation_view(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    db_user: BotUser,
+    is_reseller_bot: bool = False,
+    reseller_owner_id: int | None = None,
+):
+    owner_id, profile = await _actor(
+        session, db_user, is_reseller_bot=is_reseller_bot, reseller_owner_id=reseller_owner_id
+    )
+    if not owner_id or not profile:
+        await callback.answer("فقط نمایندگان", show_alert=True)
+        return
+    try:
+        rid = int((callback.data or "").rsplit(":", 1)[-1])
+    except ValueError:
+        await callback.answer("نامعتبر", show_alert=True)
+        return
+    from app.bot.nav_inline import with_inline_back
+    from app.db.models import ServiceCancellation
+    from app.services.service_cancellations import STATUS_LABELS
+
+    row = await session.get(ServiceCancellation, rid)
+    if not row or int(row.reseller_id or -1) != int(owner_id):
+        await callback.answer("یافت نشد", show_alert=True)
+        return
+    await callback.answer()
+    ui = await get_all_settings(session)
+    st = STATUS_LABELS.get(row.status, row.status)
+    text = (
+        f"📝 <b>درخواست لغو #{row.id}</b>\n"
+        f"سرویس: <code>{row.service_id}</code>\n"
+        f"وضعیت: {html.escape(st)}\n"
+        f"دلیل:\n{html.escape((row.reason or '')[:800])}\n\n"
+        f"<i>تأیید/رد در وب‌پنل /finance?tab=cancellations</i>"
+    )
+    markup = with_inline_back(None, ui, "res:cancellations")
+    if callback.message:
+        await safe_edit_text(callback.message, text, reply_markup=markup)
 
 
 @router.callback_query(F.data == "res:payments")
@@ -1111,26 +1241,23 @@ async def resapply_buy(
             )
         return
 
-    text = format_message(
+    summary = format_message(
         f"🧾 سفارش نمایندگی #{order.id}",
         f"نوع: {mode_label}\nپلن: {plan.name}\n"
-        f"مبلغ: <b>{format_toman(order.amount, get_settings().currency)}</b>\n\n"
-        "روش پرداخت را انتخاب کنید:",
+        f"مبلغ: <b>{format_toman(order.amount, get_settings().currency)}</b>",
     )
     if callback.message:
         from app.bot.menu_nav import present_order_pay
 
-        try:
-            await safe_edit_text(callback.message, text, reply_markup=None)
-        except Exception:
-            await callback.message.answer(text)
         await present_order_pay(
             callback.message,
             session,
             db_user,
             order.id,
             state=state,
-            text="💳 روش پرداخت را از کیبورد پایین انتخاب کنید:",
+            summary=summary,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
         )
 
 

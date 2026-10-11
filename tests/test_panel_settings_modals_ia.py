@@ -102,6 +102,24 @@ class DomainModalTemplateTests(unittest.TestCase):
         self.assertNotIn("tab == 'payment'", html)
         self.assertNotIn("tab == 'reseller'", html)
 
+    def test_limits_notices_sit_above_related_groups(self):
+        html = (TEMPLATES / "settings.html").read_text(encoding="utf-8")
+        limits = html.split("tab == 'limits'", 1)[1].split("tab == 'guides'", 1)[0]
+        # Notices are injected next to their groups, not dumped before the form.
+        self.assertIn("group_name == 'کانال اجباری'", limits)
+        self.assertIn("group_name == 'قوانین ورود به ربات'", limits)
+        self.assertIn("_forcejoin_admin_notice.html", limits)
+        self.assertIn("_terms_admin_notice.html", limits)
+        force_i = limits.find("group_name == 'کانال اجباری'")
+        terms_i = limits.find("group_name == 'قوانین ورود به ربات'")
+        self.assertGreater(force_i, 0)
+        self.assertGreater(terms_i, force_i)
+        shop = (TEMPLATES / "shop_settings.html").read_text(encoding="utf-8")
+        self.assertIn("tab == 'limits' and group_name == 'کانال اجباری'", shop)
+        self.assertIn("tab == 'limits' and group_name == 'قوانین ورود به ربات'", shop)
+        css = (ROOT / "app/web/static/panel.css").read_text(encoding="utf-8")
+        self.assertIn(".guides-editor .pay-dest-color .plan-color-card", css)
+
     def test_reseller_settings_live_on_resellers_page(self):
         html = (TEMPLATES / "resellers.html").read_text(encoding="utf-8")
         self.assertIn("تنظیمات نمایندگی", html)
@@ -159,11 +177,16 @@ class DomainSettingGroupsTests(unittest.TestCase):
         self.assertNotIn("referral_text", msg_keys)
         self.assertEqual(keys_for_tab("supports"), {"support_text"})
         self.assertEqual(keys_for_tab("loyalty"), {"referral_text"})
+        # Required-referral moved from payment modal → limits tab
         self.assertEqual(
             keys_for_tab("payment") & {"referral_required", "referral_required_text"},
+            set(),
+        )
+        self.assertEqual(
+            keys_for_tab("limits") & {"referral_required", "referral_required_text"},
             {"referral_required", "referral_required_text"},
         )
-        self.assertEqual(TAB_SETTING_GROUPS["payment"][0], "معرف اجباری")
+        self.assertEqual(TAB_SETTING_GROUPS["limits"][0], "معرف اجباری")
         self.assertIn("روش‌های پرداخت", TAB_SETTING_GROUPS["payment"])
         self.assertIn("معرف اجباری", SETTING_GROUPS)
         self.assertEqual(
@@ -193,6 +216,100 @@ class SafeNextTests(unittest.TestCase):
         self.assertEqual(safe_internal_next("/not-allowed", "/home"), "/home")
         self.assertEqual(safe_internal_next("  /tickets?supports=1  ", "/home"), "/tickets?supports=1")
 
+
+
+class PanelSettingsNavPolishTests(unittest.TestCase):
+    def test_panel_general_tab_and_pasarguard_removed(self):
+        from app.services.users import (
+            PANEL_SETTINGS_TABS,
+            SETTINGS_DOMAIN_REDIRECTS,
+            SETTINGS_TABS,
+        )
+
+        bot_keys = [k for k, _ in SETTINGS_TABS]
+        self.assertNotIn("pasarguard", bot_keys)
+        self.assertEqual(SETTINGS_DOMAIN_REDIRECTS.get("pasarguard"), "/settings?tab=bot")
+        panel_keys = [k for k, _ in PANEL_SETTINGS_TABS]
+        self.assertEqual(panel_keys[0], "general")
+        self.assertIn("general", panel_keys)
+        tabs = (TEMPLATES / "_panel_settings_tabs.html").read_text(encoding="utf-8")
+        self.assertIn('href="/settings?tab=general"', tabs)
+        # general link appears before backup
+        self.assertLess(tabs.index("tab=general"), tabs.index("tab=backup"))
+        bot = (TEMPLATES / "_settings_bot.html").read_text(encoding="utf-8")
+        self.assertNotIn("وب و عمومی", bot)
+        general = (TEMPLATES / "_settings_general.html").read_text(encoding="utf-8")
+        self.assertIn("وب و عمومی", general)
+        self.assertIn('name="WEB_PORT"', general)
+        base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
+        self.assertIn('href="/settings?tab=general"', base)
+        self.assertNotIn('href="/settings?tab=pasarguard"', base)
+        self.assertIn('href="/settings?tab=bot"', base)
+
+    def test_bot_secret_placeholders_are_clean_rtl(self):
+        bot = (TEMPLATES / "_settings_bot.html").read_text(encoding="utf-8")
+        # No mixed LTR bullets + «یا …» — that bidi-scrambles inside dir=ltr boxes.
+        self.assertNotIn("•••• یا توکن جدید", bot)
+        self.assertNotIn("•••• یا رمز جدید", bot)
+        self.assertIn('placeholder="توکن جدید"', bot)
+        self.assertIn('placeholder="رمز جدید"', bot)
+        self.assertIn("خالی بماند تا توکن فعلی حفظ شود", bot)
+        self.assertIn("خالی بماند تا رمز فعلی حفظ شود", bot)
+        css = (ROOT / "app/web/static/panel.css").read_text(encoding="utf-8")
+        self.assertIn("padding-right: var(--space-2)", css)
+        self.assertIn("padding-left: var(--space-5)", css)
+        # Physical padding lives on the main .pw-field input rule (not auth-form).
+        self.assertIn(
+            ".pw-field input {\n  width: 100%;\n  margin-top: 0;",
+            css,
+        )
+        field = css.split(".pw-field input {\n  width: 100%;", 1)[1].split("}", 1)[0]
+        self.assertIn("padding-right: var(--space-2)", field)
+        self.assertIn("padding-left: var(--space-5)", field)
+        self.assertIn("text-align: right", field)
+        ph = css.split(".pw-field input::placeholder {", 1)[1].split("}", 1)[0]
+        self.assertIn("direction: rtl", ph)
+        self.assertIn("text-align: right", ph)
+
+    def test_magic_links_copy_inside_field(self):
+        html = (TEMPLATES / "_settings_links.html").read_text(encoding="utf-8")
+        self.assertIn("magic-link-field", html)
+        self.assertIn("magic-link-copy", html)
+        self.assertIn("magic-link-input", html)
+        self.assertIn('dir="ltr"', html)
+        self.assertNotIn("btn btn-ghost", html)
+        css = (ROOT / "app/web/static/panel.css").read_text(encoding="utf-8")
+        block = css.split(".magic-link-field {", 1)[1].split("}", 1)[0]
+        # Flex LTR shell — chip is a sibling on the right, never absolute over the URL.
+        self.assertIn("display: flex", block)
+        self.assertIn("direction: ltr", block)
+        self.assertNotIn("position: relative", block)
+        self.assertIn("--magic-link-h: 52px", block)
+        self.assertIn("--magic-copy-h: 34px", block)
+        self.assertIn("--magic-copy-w: 4.75rem", block)
+        inp = css.split(".magic-link-field .magic-link-input {", 1)[1].split("}", 1)[0]
+        self.assertIn("text-overflow: ellipsis", inp)
+        self.assertIn("text-align: left", inp)
+        self.assertIn("font-size: 10px !important", inp)
+        self.assertIn("flex: 1 1 auto", inp)
+        btn = css.split(".magic-link-copy {", 1)[1].split("}", 1)[0]
+        self.assertIn("flex: 0 0 var(--magic-copy-w)", btn)
+        self.assertIn("width: var(--magic-copy-w)", btn)
+        self.assertIn("height: var(--magic-copy-h)", btn)
+        self.assertIn("justify-content: center", btn)
+        logo = css.split(".brand-logo {", 1)[1].split("}", 1)[0]
+        self.assertIn("var(--brand-logo-size)", logo)
+        self.assertIn("--brand-logo-size: 40px", css)
+        self.assertIn("--topbar-h: 58px", css)
+
+    def test_pg_connection_settings_is_last_sidebar_item(self):
+        base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
+        section = base.split('id="nav-panel-pg"', 1)[1].split("</div>", 1)[0]
+        self.assertIn("تنظیمات اتصال", section)
+        self.assertIn('href="/settings?tab=bot"', section)
+        # Owner connection link must come after every other PG nav item.
+        self.assertGreater(section.rindex("تنظیمات اتصال"), section.rindex("اینباند"))
+        self.assertGreater(section.rindex('href="/settings?tab=bot"'), section.index('href="/pg"'))
 
 if __name__ == "__main__":
     unittest.main()

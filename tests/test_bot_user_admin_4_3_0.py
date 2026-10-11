@@ -117,8 +117,20 @@ class UserEditUiTests(unittest.TestCase):
         self.assertIn("u.color_tag", users)
         self.assertIn("cell-name", users)
         self.assertNotIn("risk-dot", users)
+        picker = Path("app/web/templates/_color_tag_picker.html").read_text(encoding="utf-8")
+        # --tag-color must live on the option so selected border/label use the tag hex.
+        self.assertIn('class="color-tag-option', picker)
+        self.assertIn('style="--tag-color: {{ t.hex }}"', picker)
         css = Path("app/web/static/panel.css").read_text(encoding="utf-8")
         self.assertIn(".badge.badge-risk-tag", css)
+        risk = css.split(".badge.badge-risk-tag {", 1)[1].split("}", 1)[0]
+        self.assertIn("border-radius: 999px;", risk)
+        self.assertIn("color: var(--tag-color", risk)
+        opt = css.split(".color-tag-option {", 1)[1].split("}", 1)[0]
+        self.assertIn("border-radius: 999px;", opt)
+        self.assertIn('html[data-theme="light"] .badge.badge-risk-tag', css)
+        light_risk = css.split('html[data-theme="light"] .badge.badge-risk-tag {', 1)[1].split("}", 1)[0]
+        self.assertIn("color-mix(in srgb, var(--tag-color", light_risk)
         self.assertNotIn(".risk-dot {", css)
         self.assertIn(".card.card-flush > .search-bar:first-child", css)
         self.assertIn("padding-top: var(--card-pad)", css)
@@ -146,9 +158,12 @@ class UserEditUiTests(unittest.TestCase):
     def test_service_module_exists(self):
         src = Path("app/services/bot_user_admin.py").read_text(encoding="utf-8")
         self.assertIn("admin_credit_user_wallet", src)
+        self.assertIn("admin_debit_user_wallet", src)
+        self.assertIn("admin_adjust_user_wallet", src)
         self.assertIn("list_service_snapshots", src)
         self.assertIn("admin_renew_service", src)
         self.assertIn("MAX_ADMIN_WALLET_CREDIT", src)
+        self.assertIn("MAX_ADMIN_WALLET_DEBIT", src)
 
 
 if __name__ == "__main__":

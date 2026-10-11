@@ -15,7 +15,21 @@ set -euo pipefail
 
 REPO_URL="${PGCLOCK_REPO:-https://github.com/Mrclocks/PGClockBot.git}"
 DIR_NAME="${PGCLOCK_DIR:-PGClockBot}"
-REMOTE_BRANCH="${PGCLOCK_BRANCH:-main}"
+# Channel: main (stable) or dev. PGCLOCK_CHANNEL aliases PGCLOCK_BRANCH.
+CHANNEL_FROM_ENV=0
+if [[ -n "${PGCLOCK_CHANNEL:-${PGCLOCK_BRANCH:-}}" ]]; then
+  CHANNEL_FROM_ENV=1
+fi
+_raw_branch="${PGCLOCK_CHANNEL:-${PGCLOCK_BRANCH:-main}}"
+case "$(printf '%s' "$_raw_branch" | tr '[:upper:]' '[:lower:]')" in
+  dev|develop|development|unstable) REMOTE_BRANCH="dev" ;;
+  *) REMOTE_BRANCH="main" ;;
+esac
+unset _raw_branch
+# Only export when the operator set a channel — otherwise keep the interactive prompt.
+if [[ "$CHANNEL_FROM_ENV" -eq 1 ]]; then
+  export PGCLOCK_CHANNEL="$REMOTE_BRANCH"
+fi
 # Optional pin: tag or commit SHA (e.g. v10.0.0). When set, sync checks out this
 # ref instead of tracking the branch tip — prefer for production installs.
 REMOTE_REF="${PGCLOCK_REF:-}"
@@ -110,6 +124,12 @@ git_update() {
   info "Updating from GitHub..."
   git remote set-url origin "$REPO_URL" 2>/dev/null || true
 
+  # Explicit channel/branch env → hard-sync to that tip (install/update to dev).
+  if [[ "$CHANNEL_FROM_ENV" -eq 1 || -n "$REMOTE_REF" ]]; then
+    force_sync_to_remote
+    return 0
+  fi
+
   local branch
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "$REMOTE_BRANCH")"
   if [[ "$branch" == "HEAD" ]]; then
@@ -149,18 +169,18 @@ ensure_repo() {
       local bak="$RUNTIME_BAK"
       cd ..
       rm -rf "$ROOT"
-      git clone "$REPO_URL" "$ROOT"
+      git clone -b "$REMOTE_BRANCH" --single-branch "$REPO_URL" "$ROOT"
       cd "$ROOT"
       restore_runtime "$bak"
-      ok "Re-cloned and restored runtime files"
+      ok "Re-cloned and restored runtime files (branch: ${REMOTE_BRANCH})"
     fi
     return 0
   fi
 
-  info "Cloning ${REPO_URL} → ${ROOT}"
-  git clone "$REPO_URL" "$ROOT"
+  info "Cloning ${REPO_URL} (${REMOTE_BRANCH}) → ${ROOT}"
+  git clone -b "$REMOTE_BRANCH" --single-branch "$REPO_URL" "$ROOT"
   cd "$ROOT"
-  ok "Clone complete"
+  ok "Clone complete (branch: ${REMOTE_BRANCH})"
 }
 
 ensure_repo

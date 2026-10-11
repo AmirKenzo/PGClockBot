@@ -14,6 +14,7 @@ from app.bot.auth import is_platform_admin as _is_admin
 from app.bot.auth import require_bot_owner_handler, require_platform_rep_mgmt
 from app.config import get_settings
 from app.db.models import BotUser, Order, OrderStatus, Payment, PaymentStatus, Plan, Role, Ticket, UserService
+from app.services.home_overview import admin_customer_counts, bot_dashboard_summary
 from app.services.formatting import (
     format_system_stats,
     format_toman,
@@ -31,12 +32,151 @@ from app.services.updates import local_version
 from app.services.users import get_all_settings, get_setting, on, set_setting
 from app.bot.tg_utils import parse_bot_float, parse_bot_int, safe_edit_text
 
-
 async def _admin_hub_kb(session: AsyncSession, db_user: BotUser) -> ReplyKeyboardMarkup:
     from app.bot.menu_nav import admin_hub_reply_keyboard
+    from app.bot.nav_chrome import lasting_staff_reply
 
-    return await admin_hub_reply_keyboard(session, db_user)
+    classic = await admin_hub_reply_keyboard(session, db_user)
+    return await lasting_staff_reply(
+        session, db_user, classic=classic,
+        is_reseller_bot=False, reseller_owner_id=None,
+    )
 
+async def _staff_reply(
+    session: AsyncSession,
+    db_user: BotUser,
+    classic: ReplyKeyboardMarkup,
+) -> ReplyKeyboardMarkup:
+    """Return lasting staff ReplyKeyboard (stable main under Option B)."""
+    from app.bot.nav_chrome import lasting_staff_reply
+
+    return await lasting_staff_reply(
+        session, db_user, classic=classic,
+        is_reseller_bot=False, reseller_owner_id=None,
+    )
+
+async def _answer_users_nav(
+    message: Message,
+    session: AsyncSession,
+    db_user: BotUser,
+    text: str,
+    state: FSMContext | None = None,
+    *,
+    reopen: bool = True,
+    clear_state: bool = False,
+) -> None:
+    """After cancel/finish in users flows: heal main KB + restore users inline hub."""
+    from app.bot.nav_chrome import answer_staff_nav
+
+    reopen_fn = None
+    if reopen:
+        from app.bot.handlers.reply_nav import open_admin_users_hub
+
+        reopen_fn = open_admin_users_hub
+    await answer_staff_nav(
+        message,
+        session,
+        db_user,
+        text=text,
+        classic=kb.admin_users_reply_keyboard(),
+        state=state,
+        reopen_panel=reopen_fn,
+        clear_state=clear_state,
+        is_reseller_bot=False,
+        reseller_owner_id=None,
+    )
+
+
+async def _present_admin_tickets_list(
+    message: Message,
+    session: AsyncSession,
+    *,
+    edit: bool = False,
+) -> None:
+    """Render open platform tickets as an inline panel (list + Back)."""
+    from app.bot.nav_inline import present_inline_only, with_inline_back
+    from app.services.tickets import list_open_tickets as _list_open
+
+    tickets = await _list_open(session, platform_only=True)
+    ui = await get_all_settings(session)
+    if not tickets:
+        markup = with_inline_back(None, ui, "nv:adm:ops")
+        text = "تیکت بازی نیست."
+    else:
+        rows = [
+            [
+                InlineKeyboardButton(
+                    text=f"#{t.id} {t.subject[:24]}",
+                    callback_data=f"adm:ticket:{t.id}",
+                )
+            ]
+            for t in tickets[:20]
+        ]
+        markup = with_inline_back(
+            InlineKeyboardMarkup(inline_keyboard=rows), ui, "nv:adm:ops"
+        )
+        text = "🎫 تیکت‌های باز:"
+    if edit:
+        try:
+            await message.edit_text(text, reply_markup=markup)
+            return
+        except Exception:
+            pass
+    await present_inline_only(message, text=text, inline=markup)
+
+
+async def _answer_tickets_nav(
+    message: Message,
+    session: AsyncSession,
+    db_user: BotUser,
+    text: str,
+    state: FSMContext | None = None,
+    *,
+    clear_state: bool = False,
+) -> None:
+    """Cancel/finish ticket reply: heal main KB + resend tickets list at bottom."""
+    from app.bot.nav_chrome import answer_staff_nav
+
+    async def _reopen(msg, sess, user, st, **_kw):
+        await _present_admin_tickets_list(msg, sess, edit=False)
+
+    await answer_staff_nav(
+        message,
+        session,
+        db_user,
+        text=text,
+        classic=None,
+        state=state,
+        reopen_panel=_reopen,
+        clear_state=clear_state,
+        is_reseller_bot=False,
+        reseller_owner_id=None,
+    )
+
+
+def _admin_ticket_actions_markup(ticket_id: int, ui: dict | None = None) -> InlineKeyboardMarkup:
+    from app.bot.keyboards import _ikb, _style
+    from app.bot.nav_inline import with_inline_back
+
+    rows = [
+        [
+            _ikb(
+                "💬 پاسخ",
+                callback_data=f"adm:ticket:reply:{ticket_id}",
+                ui=ui,
+                style=_style(ui, "confirm", fallback="success"),
+            ),
+            _ikb(
+                "🗃 بستن",
+                callback_data=f"adm:ticket:close:{ticket_id}",
+                ui=ui,
+                style=_style(ui, "reject", fallback="danger"),
+            ),
+        ]
+    ]
+    return with_inline_back(
+        InlineKeyboardMarkup(inline_keyboard=rows), ui, "adm:tickets"
+    )
 
 def _plan_line(p: Plan) -> str:
     flag = "✅" if p.is_active else "⏸"
@@ -51,16 +191,20 @@ def _plan_line(p: Plan) -> str:
         f"💰 {format_toman(p.price, get_settings().currency)} · {link}"
     )
 
-
 def _plan_needs_link(p: Plan) -> bool:
     return not p.pg_template_id and not (p.pg_group_ids or "").strip()
 
-
-async def _plans_flow_reply_kb(state: FSMContext) -> ReplyKeyboardMarkup:
+async def _plans_flow_reply_kb(
+    session: AsyncSession,
+    db_user: BotUser,
+    state: FSMContext,
+) -> ReplyKeyboardMarkup:
     data = await state.get_data()
     aud = data.get("_adm_plans_aud")
-    return kb.admin_plans_reply_keyboard(audience=aud if aud in {"users", "resellers"} else None)
-
+    classic = kb.admin_plans_reply_keyboard(
+        audience=aud if aud in {"users", "resellers"} else None
+    )
+    return await _staff_reply(session, db_user, classic)
 
 async def _render_plans_list(callback: CallbackQuery, session: AsyncSession) -> None:
     ui = await get_all_settings(session)
@@ -84,7 +228,6 @@ async def _render_plans_list(callback: CallbackQuery, session: AsyncSession) -> 
                 kind="fixed",
             ),
         )
-
 
 async def _custom_link_summary(session: AsyncSession) -> tuple[str, InlineKeyboardMarkup]:
     ui = await get_all_settings(session)
@@ -125,7 +268,6 @@ async def _custom_link_summary(session: AsyncSession) -> tuple[str, InlineKeyboa
     )
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
-
 async def _plan_detail_text(p: Plan, *, category_name: str | None = None) -> str:
     gb = f"{p.data_limit_gb:g} گیگ" if p.data_limit_gb is not None else "نامحدود"
     if p.pg_template_id:
@@ -145,7 +287,6 @@ async def _plan_detail_text(p: Plan, *, category_name: str | None = None) -> str
         f"اتصال پاسارگارد: {link}"
     )
 
-
 async def _plan_category_label(session: AsyncSession, plan: Plan) -> str | None:
     if not plan.category_id:
         return None
@@ -159,12 +300,10 @@ async def _plan_category_label(session: AsyncSession, plan: Plan) -> str | None:
         name = f"{name} (خاموش)"
     return name or None
 
-
 async def _plan_detail_text_for(session: AsyncSession, plan: Plan) -> str:
     return await _plan_detail_text(
         plan, category_name=await _plan_category_label(session, plan)
     )
-
 
 def _plan_detail_keyboard(p: Plan, ui: dict | None = None) -> InlineKeyboardMarkup:
     """Plan link/toggle/edit actions — inherit fixed/trial kind color."""
@@ -246,15 +385,12 @@ def _plan_detail_keyboard(p: Plan, ui: dict | None = None) -> InlineKeyboardMark
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-
 def _style_danger(ui: dict | None) -> str | None:
     return kb._style(ui, "reject", fallback="danger")
-
 
 async def _plan_detail_markup(session: AsyncSession, plan: Plan) -> InlineKeyboardMarkup:
     ui = await get_all_settings(session)
     return _plan_detail_keyboard(plan, ui)
-
 
 async def _show_user_plan_color_picker(
     target: CallbackQuery | Message,
@@ -275,7 +411,6 @@ async def _show_user_plan_color_picker(
             await safe_edit_text(target.message, text, reply_markup=markup)
     else:
         await target.answer(text, reply_markup=markup)
-
 
 async def _pending_user_plan_finish(
     session: AsyncSession,
@@ -304,9 +439,7 @@ async def _pending_user_plan_finish(
         )
     raise ValueError("pending PG link missing")
 
-
 router = Router(name="admin")
-
 
 class AdminStates(StatesGroup):
     add_plan_name = State()
@@ -332,29 +465,29 @@ class AdminStates(StatesGroup):
     reseller_cap_days_input = State()
     reseller_cap_gb_input = State()
 
-
 @router.callback_query(F.data == "adm:home")
 @require_bot_owner_handler
-async def adm_home(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
+async def adm_home(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    db_user: BotUser,
+    state: FSMContext | None = None,
+):
     if not _is_admin(db_user):
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
-    text = (
-        f"🛠 <b>پنل ادمین</b>\n"
-        f"<code>v{local_version()}</code>\n\n"
-        "از منوی زیر بخش موردنظر را انتخاب کنید."
-    )
     if callback.message:
-        # ReplyKeyboard cannot be attached via edit_text — clear inline then send reply KB
-        from app.bot.tg_utils import safe_edit_text
+        from app.bot.handlers.reply_nav import open_admin_home
 
-        await safe_edit_text(callback.message, text, reply_markup=None)
-        await callback.message.answer(
-            "پنل ادمین:",
-            reply_markup=await _admin_hub_kb(session, db_user),
+        await open_admin_home(
+            callback.message,
+            session,
+            db_user,
+            state,
+            push=False,
+            is_reseller_bot=False,
         )
-
 
 @router.callback_query(F.data == "adm:dash")
 @require_bot_owner_handler
@@ -363,35 +496,10 @@ async def adm_dash(callback: CallbackQuery, session: AsyncSession, db_user: BotU
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
-    from sqlalchemy import or_
-
-    users_count = await session.scalar(select(func.count()).select_from(BotUser)) or 0
-    # Platform-scoped aggregates only (exclude shop-tenant orders/payments)
-    orders_count = await session.scalar(
-        select(func.count()).select_from(Order).where(Order.reseller_id.is_(None))
-    ) or 0
-    pending_pay = await session.scalar(
-        select(func.count())
-        .select_from(Payment)
-        .outerjoin(Order, Order.id == Payment.order_id)
-        .where(
-            Payment.status == PaymentStatus.PENDING.value,
-            Payment.receipt_file_id.is_not(None),
-            or_(
-                Payment.is_wallet_topup.is_(True),
-                Order.reseller_id.is_(None),
-            ),
-        )
-    ) or 0
-    pending_orders = await session.scalar(
-        select(func.count())
-        .select_from(Order)
-        .where(
-            Order.reseller_id.is_(None),
-            Order.status.in_([OrderStatus.AWAITING_APPROVAL.value, OrderStatus.PAID.value]),
-        )
-    ) or 0
-    services = await session.scalar(select(func.count()).select_from(UserService)) or 0
+    summary = await bot_dashboard_summary(session)
+    users_count, orders_count = summary["users"], summary["orders"]
+    pending_pay, pending_orders = summary["pending"], summary["pending_orders"]
+    services = summary["services"]
     text = (
         "📊 <b>داشبورد</b>\n"
         "━━━━━━━━━━━━\n"
@@ -402,12 +510,15 @@ async def adm_dash(callback: CallbackQuery, session: AsyncSession, db_user: BotU
         f"📦 سرویس‌ها: <b>{services}</b>\n"
         f"🔢 نسخه: <code>v{local_version()}</code>"
     )
-    rows = [
-        # no inline back — reply KB Back restores admin hub
-    ]
     if callback.message:
-        await callback.message.edit_text(text, reply_markup=None)
+        from app.bot.nav_inline import with_inline_back
+        from app.services.users import get_all_settings
 
+        ui = await get_all_settings(session)
+        markup = (
+            with_inline_back(None, ui, "nv:adm:ops")
+        )
+        await callback.message.edit_text(text, reply_markup=markup)
 
 def _order_actions(
     order: Order, payment: Payment | None, ui: dict | None = None
@@ -437,7 +548,6 @@ def _order_actions(
             ]
         )
     return rows
-
 
 @router.callback_query(F.data.startswith("adm:reports"))
 @require_bot_owner_handler
@@ -474,12 +584,16 @@ async def adm_reports(callback: CallbackQuery, session: AsyncSession, db_user: B
         )
     rows.append(period_row)
     if callback.message:
+        from app.bot.nav_inline import with_inline_back
+
+        ui = await get_all_settings(session)
+        markup = InlineKeyboardMarkup(inline_keyboard=rows)
+        markup = with_inline_back(markup, ui, "nv:adm:ops")
         await safe_edit_text(
             callback.message,
             text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+            reply_markup=markup,
         )
-
 
 @router.callback_query(F.data == "adm:orders")
 @require_bot_owner_handler
@@ -509,9 +623,15 @@ async def adm_orders(callback: CallbackQuery, session: AsyncSession, db_user: Bo
         merged.append(o)
         if len(merged) >= 12:
             break
+    from app.bot.nav_inline import with_inline_back
+
+    ui = await get_all_settings(session)
     if not merged:
         if callback.message:
-            await callback.message.edit_text("سفارشی نیست.", reply_markup=None)
+            markup = (
+                with_inline_back(None, ui, "nv:adm:ops")
+            )
+            await callback.message.edit_text("سفارشی نیست.", reply_markup=markup)
         return
     rows = []
     for o in merged:
@@ -519,13 +639,13 @@ async def adm_orders(callback: CallbackQuery, session: AsyncSession, db_user: Bo
         label = f"{prefix}#{o.id} · {order_status_fa(o.status)} · {format_toman(o.amount, get_settings().currency)}"
         rows.append([InlineKeyboardButton(text=label[:64], callback_data=f"adm:order:{o.id}")])
     if callback.message:
+        markup = InlineKeyboardMarkup(inline_keyboard=rows)
+        markup = with_inline_back(markup, ui, "nv:adm:ops")
         await callback.message.edit_text(
             "🛒 <b>سفارش‌ها</b>\nیکی را برای جزئیات و تأیید/رد انتخاب کنید:\n"
-            "<i>⚠ = پرداخت‌شده بدون سرویس (نیاز به تلاش مجدد تحویل)</i>\n"
-            "<i>بازگشت از کیبورد پایین</i>",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+            "<i>⚠ = پرداخت‌شده بدون سرویس (نیاز به تلاش مجدد تحویل)</i>",
+            reply_markup=markup,
         )
-
 
 @router.callback_query(F.data.startswith("adm:order:"))
 @require_bot_owner_handler
@@ -569,7 +689,6 @@ async def adm_order_view(callback: CallbackQuery, session: AsyncSession, db_user
     rows.append([InlineKeyboardButton(text="⬅️ لیست سفارش‌ها", callback_data="adm:orders")])
     if callback.message:
         await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
-
 
 async def _approve_order_bot(
     session: AsyncSession, order: Order, bot, *, reviewer_tg: int = 0
@@ -653,7 +772,6 @@ async def _approve_order_bot(
         pass
     return msg
 
-
 @router.callback_query(F.data.startswith("ordrev:ok:"))
 @require_bot_owner_handler
 async def order_approve_cb(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
@@ -686,7 +804,6 @@ async def order_approve_cb(callback: CallbackQuery, session: AsyncSession, db_us
             await callback.message.edit_text(text, reply_markup=kb.order_review(order.id) if order.status != OrderStatus.DELIVERED.value else InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ سفارش‌ها", callback_data="adm:orders")]]))
         except Exception:
             pass
-
 
 @router.callback_query(F.data.startswith("ordrev:no:"))
 @require_bot_owner_handler
@@ -741,6 +858,88 @@ async def order_reject_cb(callback: CallbackQuery, session: AsyncSession, db_use
         except Exception:
             pass
 
+@router.callback_query(F.data == "adm:cancellations")
+@require_bot_owner_handler
+async def adm_cancellations(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
+    """Platform cancel inbox — list open requests (approve/reject stays in web finance)."""
+    if not _is_admin(db_user):
+        await callback.answer("ادمین نیستید", show_alert=True)
+        return
+    await callback.answer()
+    from app.bot.nav_inline import with_inline_back
+    from app.services.service_cancellations import (
+        OPEN_OPERATOR_STATUSES,
+        STATUS_LABELS,
+        list_cancellation_requests,
+    )
+
+    rows, _next = await list_cancellation_requests(session, None, limit=40)
+    rows = [(r, u) for r, u in rows if r.status in OPEN_OPERATOR_STATUSES][:20]
+    ui = await get_all_settings(session)
+    if not rows:
+        markup = with_inline_back(None, ui, "nv:adm:home")
+        if callback.message:
+            await callback.message.edit_text("درخواست لغو معلقی نیست.", reply_markup=markup)
+        return
+    lines = ["📝 <b>درخواست‌های لغو</b>\n"]
+    kb_rows: list[list[InlineKeyboardButton]] = []
+    for row, pg_user in rows:
+        st = STATUS_LABELS.get(row.status, row.status)
+        lines.append(
+            f"#{row.id} — سرویس {row.service_id}"
+            f"{f' ({html.escape(pg_user)})' if pg_user else ''} — {st}"
+        )
+        kb_rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"#{row.id}",
+                    callback_data=f"adm:cancel:view:{row.id}",
+                )
+            ]
+        )
+    lines.append("\n<i>تأیید/رد مبلغ‌دار در وب‌پنل: /finance?tab=cancellations</i>")
+    markup = with_inline_back(
+        InlineKeyboardMarkup(inline_keyboard=kb_rows), ui, "nv:adm:home"
+    )
+    if callback.message:
+        await callback.message.edit_text("\n".join(lines), reply_markup=markup)
+
+
+@router.callback_query(F.data.regexp(r"^adm:cancel:view:\d+$"))
+@require_bot_owner_handler
+async def adm_cancellation_view(
+    callback: CallbackQuery, session: AsyncSession, db_user: BotUser
+):
+    if not _is_admin(db_user):
+        await callback.answer("ادمین نیستید", show_alert=True)
+        return
+    try:
+        rid = int((callback.data or "").rsplit(":", 1)[-1])
+    except ValueError:
+        await callback.answer("نامعتبر", show_alert=True)
+        return
+    from app.bot.nav_inline import with_inline_back
+    from app.db.models import ServiceCancellation
+    from app.services.service_cancellations import STATUS_LABELS
+
+    row = await session.get(ServiceCancellation, rid)
+    if not row or row.reseller_id is not None:
+        await callback.answer("یافت نشد", show_alert=True)
+        return
+    await callback.answer()
+    ui = await get_all_settings(session)
+    st = STATUS_LABELS.get(row.status, row.status)
+    text = (
+        f"📝 <b>درخواست لغو #{row.id}</b>\n"
+        f"سرویس: <code>{row.service_id}</code>\n"
+        f"وضعیت: {html.escape(st)}\n"
+        f"دلیل:\n{html.escape((row.reason or '')[:800])}\n\n"
+        f"<i>تأیید/رد در وب‌پنل /finance?tab=cancellations</i>"
+    )
+    markup = with_inline_back(None, ui, "adm:cancellations")
+    if callback.message:
+        await callback.message.edit_text(text, reply_markup=markup)
+
 
 @router.callback_query(F.data == "adm:payments")
 @require_bot_owner_handler
@@ -766,9 +965,13 @@ async def adm_payments(callback: CallbackQuery, session: AsyncSession, db_user: 
         .limit(15)
     )
     payments = list(result.scalars().all())
+    from app.bot.nav_inline import with_inline_back
+
+    ui = await get_all_settings(session)
+    back = with_inline_back(None, ui, "nv:adm:ops")
     if not payments:
         if callback.message:
-            await callback.message.edit_text("رسید معلقی نیست.", reply_markup=None)
+            await callback.message.edit_text("رسید معلقی نیست.", reply_markup=back)
         return
     for p in payments:
         caption = f"پرداخت #{p.id} — {format_toman(p.amount, get_settings().currency)}"
@@ -784,9 +987,7 @@ async def adm_payments(callback: CallbackQuery, session: AsyncSession, db_user: 
                 db_user.telegram_id, caption, reply_markup=kb.payment_review(p.id)
             )
     if callback.message:
-        await callback.message.edit_text("رسیدها ارسال شد.", reply_markup=None)
-
-
+        await callback.message.edit_text("رسیدها ارسال شد.", reply_markup=back)
 
 @router.callback_query(F.data.startswith("adm:plan:view:"))
 @require_bot_owner_handler
@@ -804,7 +1005,6 @@ async def adm_plan_view(callback: CallbackQuery, session: AsyncSession, db_user:
             await _plan_detail_text_for(session, plan),
             reply_markup=await _plan_detail_markup(session, plan),
         )
-
 
 @router.callback_query(F.data.startswith("adm:plan:edit:"))
 @require_bot_owner_handler
@@ -832,7 +1032,6 @@ async def adm_plan_edit_ask(
         "prefix": "پیشوند نام کاربری پاسارگارد (خالی = پیش‌فرض):",
         "suffix": "پسوند نام کاربری پاسارگارد (خالی = حذف):",
     }
-    await state.set_state(AdminStates.plan_edit_field)
     await state.update_data(
         user_plan_edit_id=int(pid_raw),
         user_plan_edit_field=field,
@@ -840,9 +1039,16 @@ async def adm_plan_edit_ask(
         _adm_plans_kind="fixed",
     )
     await callback.answer()
-    if callback.message:
-        await callback.message.answer(prompts[field], reply_markup=kb.cancel_reply())
+    from app.bot.nav_input import ask_text
 
+    await ask_text(
+        callback,
+        state,
+        prompt=prompts[field],
+        cancel_code="adm_pln",
+        fsm_state=AdminStates.plan_edit_field,
+        edit=True,
+    )
 
 @router.message(AdminStates.plan_edit_field)
 @require_bot_owner_handler
@@ -853,8 +1059,14 @@ async def adm_plan_edit_save(
         await state.clear()
         return
     if kb.is_cancel_text(message.text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
         await state.clear()
-        await message.answer("لغو شد.", reply_markup=await _plans_flow_reply_kb(state))
+        from app.bot.handlers.admin_plans import _answer_plans_cancel
+
+        await _answer_plans_cancel(message, state, session)
         return
     data = await state.get_data()
     plan = await session.get(Plan, int(data.get("user_plan_edit_id") or 0))
@@ -885,16 +1097,15 @@ async def adm_plan_edit_save(
         elif field == "suffix":
             plan.pg_username_suffix = text[:64] or None
     except ValueError:
-        await message.answer("عدد معتبر بفرستید.", reply_markup=kb.cancel_reply())
+        await message.answer("عدد معتبر بفرستید.")
         return
     await session.commit()
     await state.set_state(None)
-    await message.answer("ذخیره شد ✅", reply_markup=await _plans_flow_reply_kb(state))
+    await message.answer("ذخیره شد ✅", reply_markup=await _plans_flow_reply_kb(session, db_user, state))
     await message.answer(
         await _plan_detail_text_for(session, plan),
         reply_markup=await _plan_detail_markup(session, plan),
     )
-
 
 @router.callback_query(F.data == "adm:plan:add")
 @require_bot_owner_handler
@@ -903,88 +1114,144 @@ async def adm_plan_add(callback: CallbackQuery, state: FSMContext, db_user: BotU
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(AdminStates.add_plan_name)
     await state.update_data(_adm_plans_aud="users", _adm_plans_kind="fixed")
-    if callback.message:
-        await callback.message.answer("نام پلن را بفرستید:", reply_markup=kb.cancel_reply())
+    from app.bot.nav_input import ask_text
 
+    await ask_text(
+        callback,
+        state,
+        prompt="نام پلن را بفرستید:",
+        cancel_code="adm_pln",
+        fsm_state=AdminStates.add_plan_name,
+        edit=True,
+    )
 
 @router.message(AdminStates.add_plan_name)
 @require_bot_owner_handler
-async def plan_name(message: Message, state: FSMContext, db_user: BotUser):
+async def plan_name(
+    message: Message, state: FSMContext, session: AsyncSession, db_user: BotUser
+):
     if not _is_admin(db_user):
         await state.clear()
         await message.answer("ادمین نیستید")
         return
     if kb.is_cancel_text(message.text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
         await state.clear()
-        await message.answer("لغو شد.", reply_markup=await _plans_flow_reply_kb(state))
+        from app.bot.handlers.admin_plans import _answer_plans_cancel
+
+        await _answer_plans_cancel(message, state, session)
         return
     await state.update_data(name=(message.text or "").strip())
-    await state.set_state(AdminStates.add_plan_price)
-    await message.answer("قیمت به تومان را بفرستید:", reply_markup=kb.cancel_reply())
+    from app.bot.nav_input import ask_text
 
+    await ask_text(
+        message,
+        state,
+        prompt="قیمت به تومان را بفرستید:",
+        cancel_code="adm_pln",
+        fsm_state=AdminStates.add_plan_price,
+        edit=False,
+    )
 
 @router.message(AdminStates.add_plan_price)
 @require_bot_owner_handler
-async def plan_price(message: Message, state: FSMContext, db_user: BotUser):
+async def plan_price(
+    message: Message, state: FSMContext, session: AsyncSession, db_user: BotUser
+):
     if not _is_admin(db_user):
         await state.clear()
         await message.answer("ادمین نیستید")
         return
     if kb.is_cancel_text(message.text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
         await state.clear()
-        await message.answer("لغو شد.", reply_markup=await _plans_flow_reply_kb(state))
+        from app.bot.handlers.admin_plans import _answer_plans_cancel
+
+        await _answer_plans_cancel(message, state, session)
         return
     try:
         price = max(0, parse_bot_int(message.text))
     except ValueError:
-        await message.answer("یک عدد معتبر بفرستید.", reply_markup=kb.cancel_reply())
+        await message.answer("یک عدد معتبر بفرستید.")
         return
     await state.update_data(price=price)
-    await state.set_state(AdminStates.add_plan_days)
-    await message.answer("مدت اعتبار به روز را بفرستید:", reply_markup=kb.cancel_reply())
+    from app.bot.nav_input import ask_text
 
+    await ask_text(
+        message,
+        state,
+        prompt="مدت اعتبار به روز را بفرستید:",
+        cancel_code="adm_pln",
+        fsm_state=AdminStates.add_plan_days,
+        edit=False,
+    )
 
 @router.message(AdminStates.add_plan_days)
 @require_bot_owner_handler
-async def plan_days(message: Message, state: FSMContext, db_user: BotUser):
+async def plan_days(
+    message: Message, state: FSMContext, session: AsyncSession, db_user: BotUser
+):
     if not _is_admin(db_user):
         await state.clear()
         await message.answer("ادمین نیستید")
         return
     if kb.is_cancel_text(message.text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
         await state.clear()
-        await message.answer("لغو شد.", reply_markup=await _plans_flow_reply_kb(state))
+        from app.bot.handlers.admin_plans import _answer_plans_cancel
+
+        await _answer_plans_cancel(message, state, session)
         return
     try:
         days = max(1, parse_bot_int(message.text, default=30))
     except ValueError:
-        await message.answer("یک عدد معتبر بفرستید.", reply_markup=kb.cancel_reply())
+        await message.answer("یک عدد معتبر بفرستید.")
         return
     await state.update_data(days=days)
-    await state.set_state(AdminStates.add_plan_gb)
-    await message.answer(
-        "حجم به گیگ را بفرستید:\n<code>0</code> = نامحدود",
-        reply_markup=kb.cancel_reply(),
-    )
+    from app.bot.nav_input import ask_text
 
+    await ask_text(
+        message,
+        state,
+        prompt="حجم به گیگ را بفرستید:\n<code>0</code> = نامحدود",
+        cancel_code="adm_pln",
+        fsm_state=AdminStates.add_plan_gb,
+        edit=False,
+    )
 
 @router.message(AdminStates.add_plan_gb)
 @require_bot_owner_handler
-async def plan_gb(message: Message, state: FSMContext, db_user: BotUser):
+async def plan_gb(
+    message: Message, state: FSMContext, session: AsyncSession, db_user: BotUser
+):
     if not _is_admin(db_user):
         await state.clear()
         await message.answer("ادمین نیستید")
         return
     if kb.is_cancel_text(message.text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
         await state.clear()
-        await message.answer("لغو شد.", reply_markup=await _plans_flow_reply_kb(state))
+        from app.bot.handlers.admin_plans import _answer_plans_cancel
+
+        await _answer_plans_cancel(message, state, session)
         return
     try:
         gb = parse_bot_float(message.text)
     except ValueError:
-        await message.answer("یک عدد معتبر بفرستید.", reply_markup=kb.cancel_reply())
+        await message.answer("یک عدد معتبر بفرستید.")
         return
     await state.update_data(gb=None if gb <= 0 else gb)
     await state.set_state(AdminStates.add_plan_link)
@@ -999,24 +1266,30 @@ async def plan_gb(message: Message, state: FSMContext, db_user: BotUser):
         ),
     )
 
-
 @router.message(AdminStates.add_plan_link)
 @require_bot_owner_handler
-async def plan_link_cancel(message: Message, state: FSMContext, db_user: BotUser):
+async def plan_link_cancel(
+    message: Message, state: FSMContext, session: AsyncSession, db_user: BotUser
+):
     """Allow reply-keyboard انصراف while waiting for inline PG mode pick."""
     if not _is_admin(db_user):
         await state.clear()
         await message.answer("ادمین نیستید")
         return
     if kb.is_cancel_text(message.text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
         await state.clear()
-        await message.answer("لغو شد.", reply_markup=await _plans_flow_reply_kb(state))
+        from app.bot.handlers.admin_plans import _answer_plans_cancel
+
+        await _answer_plans_cancel(message, state, session)
         return
     await message.answer(
         "اتصال را از دکمه‌های زیر پیام انتخاب کنید، یا انصراف بزنید.",
-        reply_markup=await _plans_flow_reply_kb(state),
+        reply_markup=await _plans_flow_reply_kb(session, db_user, state),
     )
-
 
 async def _finish_new_plan(
     session: AsyncSession,
@@ -1065,7 +1338,6 @@ async def _finish_new_plan(
     )
     return plan
 
-
 @router.callback_query(F.data == "adm:plan:new:mode:tpl")
 @require_bot_owner_handler
 async def adm_plan_new_tpl(callback: CallbackQuery, state: FSMContext, db_user: BotUser):
@@ -1079,7 +1351,6 @@ async def adm_plan_new_tpl(callback: CallbackQuery, state: FSMContext, db_user: 
     await state.update_data(new_plan=1)
     await _show_template_picker(callback, plan_id=0)
 
-
 @router.callback_query(F.data == "adm:plan:new:mode:grp")
 @require_bot_owner_handler
 async def adm_plan_new_grp(callback: CallbackQuery, state: FSMContext, db_user: BotUser):
@@ -1092,7 +1363,6 @@ async def adm_plan_new_grp(callback: CallbackQuery, state: FSMContext, db_user: 
     await callback.answer()
     await state.update_data(new_plan=1, selected_groups=[])
     await _show_group_picker(callback, state, plan_id=0)
-
 
 async def _show_template_picker(callback: CallbackQuery, *, plan_id: int) -> None:
     try:
@@ -1126,7 +1396,6 @@ async def _show_template_picker(callback: CallbackQuery, *, plan_id: int) -> Non
             text,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
-
 
 async def _show_group_picker(callback: CallbackQuery, state: FSMContext, *, plan_id: int) -> None:
     data = await state.get_data()
@@ -1180,7 +1449,6 @@ async def _show_group_picker(callback: CallbackQuery, state: FSMContext, *, plan
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
 
-
 @router.callback_query(F.data.startswith("adm:plan:picktpl:"))
 @require_bot_owner_handler
 async def adm_plan_pick_tpl(callback: CallbackQuery, state: FSMContext, db_user: BotUser):
@@ -1191,7 +1459,6 @@ async def adm_plan_pick_tpl(callback: CallbackQuery, state: FSMContext, db_user:
     await callback.answer()
     await state.update_data(new_plan=0, selected_groups=[])
     await _show_template_picker(callback, plan_id=plan_id)
-
 
 @router.callback_query(F.data.startswith("adm:plan:pickgrp:"))
 @require_bot_owner_handler
@@ -1212,7 +1479,6 @@ async def adm_plan_pick_grp(
     await callback.answer()
     await state.update_data(new_plan=0, selected_groups=selected)
     await _show_group_picker(callback, state, plan_id=plan_id)
-
 
 @router.callback_query(F.data.startswith("adm:plan:settpl:"))
 @require_bot_owner_handler
@@ -1257,7 +1523,6 @@ async def adm_plan_set_tpl(
             reply_markup=await _plan_detail_markup(session, plan),
         )
 
-
 @router.callback_query(F.data.startswith("adm:plan:toggrp:"))
 @require_bot_owner_handler
 async def adm_plan_tog_grp(callback: CallbackQuery, state: FSMContext, db_user: BotUser):
@@ -1276,7 +1541,6 @@ async def adm_plan_tog_grp(callback: CallbackQuery, state: FSMContext, db_user: 
     await state.update_data(selected_groups=selected)
     await callback.answer()
     await _show_group_picker(callback, state, plan_id=plan_id)
-
 
 @router.callback_query(F.data.startswith("adm:plan:grpdone:"))
 @require_bot_owner_handler
@@ -1324,7 +1588,6 @@ async def adm_plan_grp_done(
             reply_markup=await _plan_detail_markup(session, plan),
         )
 
-
 @router.callback_query(F.data == "adm:plan:new:backlink")
 @require_bot_owner_handler
 async def adm_plan_new_back_link(callback: CallbackQuery, state: FSMContext, db_user: BotUser):
@@ -1346,7 +1609,6 @@ async def adm_plan_new_back_link(callback: CallbackQuery, state: FSMContext, db_
             ),
         )
 
-
 async def _platform_catalog_staff(
     session: AsyncSession, db_user: BotUser
 ) -> dict | None:
@@ -1359,7 +1621,6 @@ async def _platform_catalog_staff(
     if not bridge or not bridge.staff or not staff_is_platform_admin(bridge.staff):
         return None
     return bridge.staff
-
 
 async def _show_plan_category_picker(
     target: CallbackQuery,
@@ -1438,7 +1699,6 @@ async def _show_plan_category_picker(
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
 
-
 @router.callback_query(F.data.startswith("adm:plan:newcolor:"))
 @require_bot_owner_handler
 async def adm_plan_new_color(
@@ -1464,7 +1724,6 @@ async def adm_plan_new_color(
         callback, session, staff, plan_id=None, selected_id=None
     )
 
-
 @router.callback_query(F.data == "adm:plan:new:backcolor")
 @require_bot_owner_handler
 async def adm_plan_new_back_color(
@@ -1481,7 +1740,6 @@ async def adm_plan_new_back_color(
         callback_prefix="adm:plan:newcolor",
         back_callback="adm:plan:new:backlink",
     )
-
 
 @router.callback_query(F.data.startswith("adm:plan:newcat:"), AdminStates.add_plan_category)
 @require_bot_owner_handler
@@ -1534,7 +1792,6 @@ async def adm_plan_new_category(
             reply_markup=await _plan_detail_markup(session, plan),
         )
 
-
 @router.callback_query(F.data.startswith("adm:plan:catpick:"))
 @require_bot_owner_handler
 async def adm_plan_cat_pick(
@@ -1560,7 +1817,6 @@ async def adm_plan_cat_pick(
         plan_id=pid,
         selected_id=int(plan.category_id) if plan.category_id else None,
     )
-
 
 @router.callback_query(F.data.startswith("adm:plan:setcat:"))
 @require_bot_owner_handler
@@ -1610,7 +1866,6 @@ async def adm_plan_set_cat(
             reply_markup=await _plan_detail_markup(session, plan),
         )
 
-
 @router.callback_query(F.data.startswith("adm:plan:colorpick:"))
 @require_bot_owner_handler
 async def adm_plan_color_pick(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
@@ -1629,7 +1884,6 @@ async def adm_plan_color_pick(callback: CallbackQuery, session: AsyncSession, db
         callback_prefix=f"adm:plan:setcolor:{pid}",
         back_callback=f"adm:plan:view:{pid}",
     )
-
 
 @router.callback_query(F.data.startswith("adm:plan:setcolor:"))
 @require_bot_owner_handler
@@ -1658,7 +1912,6 @@ async def adm_plan_set_color(callback: CallbackQuery, session: AsyncSession, db_
             reply_markup=await _plan_detail_markup(session, plan),
         )
 
-
 @router.callback_query(F.data.startswith("adm:plan:clearlink:"))
 @require_bot_owner_handler
 async def adm_plan_clear_link(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
@@ -1678,7 +1931,6 @@ async def adm_plan_clear_link(callback: CallbackQuery, session: AsyncSession, db
             await _plan_detail_text(plan),
             reply_markup=await _plan_detail_markup(session, plan),
         )
-
 
 @router.callback_query(F.data.startswith("adm:plan:toggle:"))
 @require_bot_owner_handler
@@ -1705,7 +1957,6 @@ async def plan_toggle(callback: CallbackQuery, session: AsyncSession, db_user: B
         except Exception:
             pass
     await _render_plans_list(callback, session)
-
 
 @router.callback_query(F.data.startswith("adm:plan:delask:"))
 @require_bot_owner_handler
@@ -1736,7 +1987,6 @@ async def adm_plan_del_ask(callback: CallbackQuery, db_user: BotUser):
             ),
         )
 
-
 @router.callback_query(F.data.startswith("adm:plan:del:"))
 @require_bot_owner_handler
 async def adm_plan_del(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
@@ -1764,7 +2014,6 @@ async def adm_plan_del(callback: CallbackQuery, session: AsyncSession, db_user: 
     await callback.answer("حذف شد")
     await _render_plans_list(callback, session)
 
-
 @router.callback_query(F.data == "adm:custom")
 @require_bot_owner_handler
 async def adm_custom(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
@@ -1775,7 +2024,6 @@ async def adm_custom(callback: CallbackQuery, session: AsyncSession, db_user: Bo
     text, markup = await _custom_link_summary(session)
     if callback.message:
         await callback.message.edit_text(text, reply_markup=markup)
-
 
 @router.callback_query(F.data == "adm:custom:toggle")
 @require_bot_owner_handler
@@ -1790,7 +2038,6 @@ async def adm_custom_toggle(callback: CallbackQuery, session: AsyncSession, db_u
     if callback.message:
         await callback.message.edit_text(text, reply_markup=markup)
 
-
 @router.callback_query(F.data == "adm:custom:clearlink")
 @require_bot_owner_handler
 async def adm_custom_clear(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
@@ -1803,7 +2050,6 @@ async def adm_custom_clear(callback: CallbackQuery, session: AsyncSession, db_us
     text, markup = await _custom_link_summary(session)
     if callback.message:
         await callback.message.edit_text(text, reply_markup=markup)
-
 
 async def _show_custom_template_picker(callback: CallbackQuery) -> None:
     try:
@@ -1834,7 +2080,6 @@ async def _show_custom_template_picker(callback: CallbackQuery) -> None:
             "📋 تمپلیت پاسارگارد برای پلن دلخواه:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
-
 
 async def _show_custom_group_picker(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
@@ -1880,7 +2125,6 @@ async def _show_custom_group_picker(callback: CallbackQuery, state: FSMContext) 
     if callback.message:
         await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
-
 @router.callback_query(F.data == "adm:custom:picktpl")
 @require_bot_owner_handler
 async def adm_custom_pick_tpl(callback: CallbackQuery, db_user: BotUser):
@@ -1889,7 +2133,6 @@ async def adm_custom_pick_tpl(callback: CallbackQuery, db_user: BotUser):
         return
     await callback.answer()
     await _show_custom_template_picker(callback)
-
 
 @router.callback_query(F.data.startswith("adm:custom:settpl:"))
 @require_bot_owner_handler
@@ -1904,7 +2147,6 @@ async def adm_custom_set_tpl(callback: CallbackQuery, session: AsyncSession, db_
     text, markup = await _custom_link_summary(session)
     if callback.message:
         await callback.message.edit_text(text, reply_markup=markup)
-
 
 @router.callback_query(F.data == "adm:custom:pickgrp")
 @require_bot_owner_handler
@@ -1922,7 +2164,6 @@ async def adm_custom_pick_grp(callback: CallbackQuery, session: AsyncSession, st
     await callback.answer()
     await _show_custom_group_picker(callback, state)
 
-
 @router.callback_query(F.data.startswith("adm:custom:toggrp:"))
 @require_bot_owner_handler
 async def adm_custom_tog_grp(callback: CallbackQuery, state: FSMContext, db_user: BotUser):
@@ -1939,7 +2180,6 @@ async def adm_custom_tog_grp(callback: CallbackQuery, state: FSMContext, db_user
     await state.update_data(custom_selected_groups=selected)
     await callback.answer()
     await _show_custom_group_picker(callback, state)
-
 
 @router.callback_query(F.data == "adm:custom:grpdone")
 @require_bot_owner_handler
@@ -1960,7 +2200,6 @@ async def adm_custom_grp_done(callback: CallbackQuery, session: AsyncSession, st
     if callback.message:
         await callback.message.edit_text(text, reply_markup=markup)
 
-
 @router.callback_query(F.data == "adm:users")
 @require_bot_owner_handler
 async def adm_users(callback: CallbackQuery, session: AsyncSession, db_user: BotUser, state: FSMContext | None = None):
@@ -1968,34 +2207,19 @@ async def adm_users(callback: CallbackQuery, session: AsyncSession, db_user: Bot
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
-    total = await session.scalar(select(func.count()).select_from(BotUser))
-    blocked = await session.scalar(
-        select(func.count()).select_from(BotUser).where(BotUser.is_blocked.is_(True))
-    ) or 0
-    orders = await session.scalar(select(func.count()).select_from(Order))
-    text = (
-        "👥 <b>کاربران بات</b>\n\n"
-        f"کل: {total}\n"
-        f"مسدود: {blocked}\n"
-        f"سفارش‌ها: {orders}\n\n"
-        "از کیبورد پایین لیست یا جستجو را انتخاب کنید."
-    )
     if callback.message:
-        from app.bot.tg_utils import safe_edit_text
+        from app.bot.handlers.reply_nav import open_admin_users_hub
 
-        await safe_edit_text(callback.message, text, reply_markup=None)
-        await callback.message.answer(
-            "کاربران:",
-            reply_markup=kb.admin_users_reply_keyboard(),
+        await open_admin_users_hub(
+            callback.message,
+            session,
+            db_user,
+            state,
+            push=False,
+            is_reseller_bot=False,
         )
-        if state is not None:
-            from app.bot import menu_nav as nav
-
-            await nav.set_nav_level(state, nav.NAV_ADMIN_USERS, push=False)
-
 
 USERS_PAGE_SIZE = 10
-
 
 def _deny_if_outside_platform_shop(user: BotUser | None) -> str | None:
     """Owner admin tools are platform-shop only (reseller_id IS NULL)."""
@@ -2005,13 +2229,11 @@ def _deny_if_outside_platform_shop(user: BotUser | None) -> str | None:
         return "این کاربر متعلق به فروشگاه نماینده است"
     return None
 
-
 async def _platform_shop_user(
     session: AsyncSession, user_id: int
 ) -> tuple[BotUser | None, str | None]:
     user = await session.get(BotUser, int(user_id))
     return user, _deny_if_outside_platform_shop(user)
-
 
 @router.callback_query(F.data.startswith("adm:users:list:"))
 @require_bot_owner_handler
@@ -2069,13 +2291,14 @@ async def adm_users_list(callback: CallbackQuery, session: AsyncSession, db_user
         f"<i>🔔 اعلان · ⏰ انقضا · 📉 حجم — جزئیات در وب‌پنل /users</i>"
     )
     if callback.message:
-        await callback.message.edit_text(
-            text,
-            reply_markup=kb.admin_users_list_keyboard(
-                page=page, has_prev=has_prev, has_next=has_next, rows=rows
-            ),
-        )
+        from app.bot.nav_inline import with_inline_back
 
+        ui = await get_all_settings(session)
+        markup = kb.admin_users_list_keyboard(
+            page=page, has_prev=has_prev, has_next=has_next, rows=rows
+        )
+        markup = with_inline_back(markup, ui, "nv:adm:users")
+        await callback.message.edit_text(text, reply_markup=markup)
 
 @router.callback_query(F.data == "adm:users:webhint")
 @require_bot_owner_handler
@@ -2088,7 +2311,6 @@ async def adm_users_webhint(callback: CallbackQuery, db_user: BotUser):
         show_alert=True,
     )
 
-
 @router.callback_query(F.data == "adm:users:search")
 @require_bot_owner_handler
 async def adm_users_search_start(callback: CallbackQuery, state: FSMContext, db_user: BotUser):
@@ -2096,13 +2318,16 @@ async def adm_users_search_start(callback: CallbackQuery, state: FSMContext, db_
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(AdminStates.user_search)
-    if callback.message:
-        await callback.message.answer(
-            "آیدی عددی تلگرام کاربر را بفرستید:",
-            reply_markup=kb.cancel_reply(),
-        )
+    from app.bot.nav_input import ask_text
 
+    await ask_text(
+        callback,
+        state,
+        prompt="آیدی عددی تلگرام کاربر را بفرستید:",
+        cancel_code="adm_usr",
+        fsm_state=AdminStates.user_search,
+        edit=True,
+    )
 
 @router.message(AdminStates.user_search)
 @require_bot_owner_handler
@@ -2114,9 +2339,18 @@ async def adm_users_search(
         await message.answer("ادمین نیستید")
         return
     if kb.is_cancel_text(message.text):
-        await state.clear()
-        await message.answer("لغو شد.", reply_markup=kb.persistent_reply_keyboard())
-        await message.answer("👥 کاربران", reply_markup=kb.admin_users_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await _answer_users_nav(
+            message,
+            session,
+            db_user,
+            "لغو شد.",
+            state,
+            clear_state=True,
+        )
         return
     try:
         tg_id = int((message.text or "").strip())
@@ -2142,7 +2376,6 @@ async def adm_users_search(
         return
     await message.answer("👤 نتیجه جستجو", reply_markup=users_kb)
     await _render_user_card(message, session, user)
-
 
 async def _render_user_card(
     message: Message,
@@ -2208,7 +2441,6 @@ async def _render_user_card(
             pass
     await message.answer(text, reply_markup=markup)
 
-
 @router.callback_query(F.data.startswith("adm:users:msg:"))
 @require_bot_owner_handler
 async def adm_users_message_start(
@@ -2222,14 +2454,19 @@ async def adm_users_message_start(
         await callback.answer(deny, show_alert=True)
         return
     await callback.answer()
-    await state.set_state(AdminStates.user_message)
     await state.update_data(msg_user_id=int(user.id))
-    if callback.message:
-        await callback.message.answer(
-            f"✉️ متن پیام برای <b>{html.escape(user.full_name or user.username or str(user.telegram_id))}</b> را بفرستید:",
-            reply_markup=kb.cancel_reply(),
-        )
+    from app.bot.nav_input import ask_text
 
+    await ask_text(
+        callback,
+        state,
+        prompt=(
+            f"✉️ متن پیام برای <b>{html.escape(user.full_name or user.username or str(user.telegram_id))}</b> را بفرستید:"
+        ),
+        cancel_code="adm_usr",
+        fsm_state=AdminStates.user_message,
+        edit=True,
+    )
 
 @router.message(AdminStates.user_message)
 @require_bot_owner_handler
@@ -2240,15 +2477,25 @@ async def adm_users_message_send(
         await state.clear()
         return
     if kb.is_cancel_text(message.text):
-        await state.clear()
-        await message.answer("لغو شد.", reply_markup=kb.admin_users_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await _answer_users_nav(
+            message,
+            session,
+            db_user,
+            "لغو شد.",
+            state,
+            clear_state=True,
+        )
         return
     data = await state.get_data()
     uid = int(data.get("msg_user_id") or 0)
     user, deny = await _platform_shop_user(session, uid) if uid else (None, "یافت نشد")
     await state.clear()
     if deny:
-        await message.answer(deny, reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer(deny, reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
         return
     from app.services.users_quick import send_staff_dm
 
@@ -2260,13 +2507,12 @@ async def adm_users_message_send(
             actor=str(db_user.telegram_id or db_user.id),
         )
         await session.commit()
-        await message.answer("پیام ارسال شد ✅", reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer("پیام ارسال شد ✅", reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
     except ValueError as e:
-        await message.answer(user_safe_error(e), reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer(user_safe_error(e), reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
     except Exception as e:
-        await message.answer(f"خطا: {user_safe_error(e)}", reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer(f"خطا: {user_safe_error(e)}", reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
     await _render_user_card(message, session, user)
-
 
 @router.callback_query(F.data.startswith("adm:users:view:"))
 @require_bot_owner_handler
@@ -2282,7 +2528,6 @@ async def adm_users_view(callback: CallbackQuery, session: AsyncSession, db_user
     await callback.answer()
     if callback.message:
         await _render_user_card(callback.message, session, user, edit=True)
-
 
 @router.callback_query(F.data.regexp(r"^adm:users:tag:\d+$"))
 @require_bot_owner_handler
@@ -2315,7 +2560,6 @@ async def adm_users_tag_picker(
             "یکی از چهار سطح را انتخاب کنید:",
             reply_markup=kb.admin_user_risk_tag_keyboard(user.id, current=cur),
         )
-
 
 @router.callback_query(F.data.regexp(r"^adm:users:tagset:\d+:[a-z]+$"))
 @require_bot_owner_handler
@@ -2357,7 +2601,6 @@ async def adm_users_tag_set(
     if callback.message:
         await _render_user_card(callback.message, session, user, edit=True)
 
-
 @router.callback_query(F.data.startswith("adm:users:renew:"))
 @require_bot_owner_handler
 async def adm_users_quick_renew(
@@ -2389,12 +2632,14 @@ async def adm_users_quick_renew(
     if callback.message and user:
         await _render_user_card(callback.message, session, user, edit=True)
 
-
-@router.callback_query(F.data.startswith("adm:users:wcredit:"))
-@require_bot_owner_handler
-async def adm_users_wallet_credit_ask(
-    callback: CallbackQuery, state: FSMContext, session: AsyncSession, db_user: BotUser
-):
+async def _adm_users_wallet_adjust_ask(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    db_user: BotUser,
+    *,
+    mode: str,
+) -> None:
     if not _is_admin(db_user):
         await callback.answer("ادمین نیستید", show_alert=True)
         return
@@ -2404,15 +2649,52 @@ async def adm_users_wallet_credit_ask(
     if deny:
         await callback.answer(deny, show_alert=True)
         return
-    await state.set_state(AdminStates.user_wallet_credit)
-    await state.update_data(admin_credit_user_id=user_id)
+    from app.services.bot_user_admin import parse_admin_wallet_mode
+
+    try:
+        direction = parse_admin_wallet_mode(mode)
+    except ValueError as e:
+        await callback.answer(user_safe_error(e), show_alert=True)
+        return
+    await state.update_data(admin_credit_user_id=user_id, admin_wallet_mode=direction)
     await callback.answer()
-    if callback.message:
-        await callback.message.answer(
-            f"💰 مبلغ شارژ کیف پول برای <b>{html.escape(user.full_name or str(user.telegram_id))}</b>\n"
-            f"موجودی فعلی: {format_toman(user.wallet_balance, get_settings().currency)}\n\n"
-            "مبلغ را به تومان ارسال کنید (حداقل ۱۰۰۰):",
-        )
+    from app.bot.nav_input import ask_text
+
+    action = "افزایش" if direction == "credit" else "کاهش"
+    prompt = (
+        f"💰 {action} کیف پول برای <b>{html.escape(user.full_name or str(user.telegram_id))}</b>\n"
+        f"موجودی فعلی: {format_toman(user.wallet_balance, get_settings().currency)}\n\n"
+        "مبلغ را به تومان بفرستید (عدد مثبت، حداقل ۱۰۰۰).\n"
+        "موجودی منفی مجاز نیست."
+    )
+    await ask_text(
+        callback,
+        state,
+        prompt=prompt,
+        cancel_code="adm_usr",
+        fsm_state=AdminStates.user_wallet_credit,
+        edit=True,
+    )
+
+
+@router.callback_query(F.data.startswith("adm:users:wcredit:"))
+@require_bot_owner_handler
+async def adm_users_wallet_credit_ask(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession, db_user: BotUser
+):
+    await _adm_users_wallet_adjust_ask(
+        callback, state, session, db_user, mode="credit"
+    )
+
+
+@router.callback_query(F.data.startswith("adm:users:wdebit:"))
+@require_bot_owner_handler
+async def adm_users_wallet_debit_ask(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession, db_user: BotUser
+):
+    await _adm_users_wallet_adjust_ask(
+        callback, state, session, db_user, mode="debit"
+    )
 
 
 @router.message(AdminStates.user_wallet_credit)
@@ -2423,44 +2705,65 @@ async def adm_users_wallet_credit_save(
     if not _is_admin(db_user):
         await state.clear()
         return
+    if kb.is_cancel_text(message.text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await _answer_users_nav(
+            message,
+            session,
+            db_user,
+            "لغو شد.",
+            state,
+            clear_state=True,
+        )
+        return
     data = await state.get_data()
     user_id = int(data.get("admin_credit_user_id") or 0)
+    mode = str(data.get("admin_wallet_mode") or "credit")
     user, deny = await _platform_shop_user(session, user_id) if user_id else (None, "یافت نشد")
     if deny:
         await state.clear()
-        await message.answer(deny, reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer(deny, reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
         return
-    amount = parse_bot_int(message.text or "")
-    if amount is None or amount < 1000:
-        await message.answer(
-            "مبلغ نامعتبر — حداقل ۱۰۰۰ تومان",
-            reply_markup=kb.cancel_reply(),
-        )
-        return
-    from app.services.bot_user_admin import admin_credit_user_wallet
+    from app.services.bot_user_admin import (
+        admin_adjust_user_wallet,
+        parse_admin_wallet_amount,
+        parse_admin_wallet_mode,
+    )
 
     try:
-        await admin_credit_user_wallet(
+        amount = parse_admin_wallet_amount(message.text or "")
+        direction = parse_admin_wallet_mode(mode)
+    except ValueError:
+        await message.answer(
+            "مبلغ نامعتبر — عدد صحیح مثبت تومان بفرستید (حداقل ۱۰۰۰).",
+        )
+        return
+    try:
+        await admin_adjust_user_wallet(
             session,
             user,
             int(amount),
+            mode=direction,
             actor=f"tg:{db_user.telegram_id}",
-            note="شارژ از ربات ادمین",
+            note="تنظیم از ربات ادمین",
         )
     except ValueError as e:
-        await message.answer(user_safe_error(e), reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer(user_safe_error(e), reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
         await state.clear()
         return
     await state.clear()
     await session.refresh(user)
+    verb = "شارژ شد" if direction == "credit" else "کسر شد"
     await message.answer(
-        f"✅ کیف پول شارژ شد.\n"
+        f"✅ کیف پول {verb}.\n"
         f"مبلغ: {format_toman(amount, get_settings().currency)}\n"
         f"مانده: {format_toman(user.wallet_balance, get_settings().currency)}",
-        reply_markup=kb.admin_users_reply_keyboard(),
+        reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()),
     )
     await _render_user_card(message, session, user)
-
 
 @router.callback_query(F.data.startswith("adm:users:svcs:"))
 @require_bot_owner_handler
@@ -2509,7 +2812,6 @@ async def adm_users_services(
             ),
         )
 
-
 @router.callback_query(F.data.startswith("adm:users:svc:"))
 @require_bot_owner_handler
 async def adm_users_service_one(
@@ -2543,7 +2845,6 @@ async def adm_users_service_one(
             snapshot_telegram_lines(snap),
             reply_markup=kb.admin_user_service_actions(user_id, service_id),
         )
-
 
 @router.callback_query(F.data.startswith("adm:users:svclink:"))
 @require_bot_owner_handler
@@ -2580,7 +2881,6 @@ async def adm_users_service_link(
         await callback.message.answer(
             f"🔗 لینک سرویس #{service_id}:\n<code>{html.escape(url)}</code>"
         )
-
 
 @router.callback_query(F.data.startswith("adm:users:svcrenew:"))
 @require_bot_owner_handler
@@ -2628,7 +2928,6 @@ async def adm_users_service_renew(
             reply_markup=kb.admin_user_service_actions(user_id, service_id),
         )
 
-
 @router.callback_query(F.data.startswith("adm:users:svcdelask:"))
 @require_bot_owner_handler
 async def adm_users_service_delete_ask(
@@ -2665,7 +2964,6 @@ async def adm_users_service_delete_ask(
             ),
             reply_markup=kb.admin_user_service_delete_confirm(user_id, service_id),
         )
-
 
 @router.callback_query(F.data.startswith("adm:users:svcdel:"))
 @require_bot_owner_handler
@@ -2715,7 +3013,6 @@ async def adm_users_service_delete(
                 ]
             ),
         )
-
 
 @router.callback_query(F.data.startswith("adm:users:svcadj:"))
 @require_bot_owner_handler
@@ -2774,12 +3071,17 @@ async def adm_users_service_adjust(
                 "svcadj_sid": service_id,
             }
         )
-        await state.set_state(AdminStates.svc_adjust_days_input)
         await callback.answer()
         if callback.message:
-            await callback.message.answer(
-                f"تعداد روز تغییر را وارد کنید (±{MAX_EXTEND_DAYS}، منفی = کاهش):",
-                reply_markup=kb.cancel_reply(),
+            from app.bot.nav_input import ask_text
+
+            await ask_text(
+                callback,
+                state,
+                prompt=f"تعداد روز تغییر را وارد کنید (±{MAX_EXTEND_DAYS}، منفی = کاهش):",
+                cancel_code="adm_usr",
+                fsm_state=AdminStates.svc_adjust_days_input,
+                edit=False,
             )
         return
     elif action == "gb" and detail == "input":
@@ -2790,12 +3092,17 @@ async def adm_users_service_adjust(
                 "svcadj_sid": service_id,
             }
         )
-        await state.set_state(AdminStates.svc_adjust_gb_input)
         await callback.answer()
         if callback.message:
-            await callback.message.answer(
-                f"مقدار گیگ تغییر را وارد کنید (±{MAX_EXTEND_GB}، منفی = کاهش):",
-                reply_markup=kb.cancel_reply(),
+            from app.bot.nav_input import ask_text
+
+            await ask_text(
+                callback,
+                state,
+                prompt=f"مقدار گیگ تغییر را وارد کنید (±{MAX_EXTEND_GB}، منفی = کاهش):",
+                cancel_code="adm_usr",
+                fsm_state=AdminStates.svc_adjust_gb_input,
+                edit=False,
             )
         return
     elif action == "confirm":
@@ -2848,7 +3155,6 @@ async def adm_users_service_adjust(
             ),
         )
 
-
 @router.message(AdminStates.svc_adjust_days_input)
 @require_bot_owner_handler
 async def adm_svc_adjust_days_entered(
@@ -2858,19 +3164,29 @@ async def adm_svc_adjust_days_entered(
         return
     if kb.is_cancel_text(message.text):
         await state.set_state(None)
-        await message.answer("لغو شد.", reply_markup=kb.admin_users_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await _answer_users_nav(
+            message,
+            session,
+            db_user,
+            "لغو شد.",
+            state,
+            clear_state=True,
+        )
         return
     from app.services.bot_user_admin import MAX_EXTEND_DAYS
 
     try:
         days = parse_bot_int(message.text)
     except ValueError:
-        await message.answer("عدد معتبر بفرستید", reply_markup=kb.cancel_reply())
+        await message.answer("عدد معتبر بفرستید")
         return
     if abs(days) > MAX_EXTEND_DAYS:
         await message.answer(
             f"روز باید بین ±{MAX_EXTEND_DAYS} باشد",
-            reply_markup=kb.cancel_reply(),
         )
         return
     data = await state.get_data()
@@ -2880,7 +3196,7 @@ async def adm_svc_adjust_days_entered(
         await state.set_state(None)
         await message.answer(
             "نشست منقضی شد — دوباره از منوی سرویس وارد شوید.",
-            reply_markup=kb.admin_users_reply_keyboard(),
+            reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()),
         )
         return
     adj_key = f"svcadj:{user_id}:{service_id}"
@@ -2889,7 +3205,7 @@ async def adm_svc_adjust_days_entered(
     await state.set_state(None)
     await state.update_data(**{adj_key: {"days": days, "gb": gb}})
     # Restore reply submenu (cancel_reply displaced it); then show inline adjust UI.
-    await message.answer("👥 کاربران", reply_markup=kb.admin_users_reply_keyboard())
+    await message.answer("👥 کاربران", reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
     await message.answer(
         f"⏱ <b>تغییر مانده سرویس #{service_id}</b>\n\n"
         f"روز: <b>{days}</b> · گیگ: <b>{gb}</b>",
@@ -2897,7 +3213,6 @@ async def adm_svc_adjust_days_entered(
             user_id, service_id, days=days, gb=gb
         ),
     )
-
 
 @router.message(AdminStates.svc_adjust_gb_input)
 @require_bot_owner_handler
@@ -2908,19 +3223,29 @@ async def adm_svc_adjust_gb_entered(
         return
     if kb.is_cancel_text(message.text):
         await state.set_state(None)
-        await message.answer("لغو شد.", reply_markup=kb.admin_users_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await _answer_users_nav(
+            message,
+            session,
+            db_user,
+            "لغو شد.",
+            state,
+            clear_state=True,
+        )
         return
     from app.services.bot_user_admin import MAX_EXTEND_GB
 
     try:
         gb = parse_bot_float(message.text)
     except ValueError:
-        await message.answer("عدد معتبر بفرستید", reply_markup=kb.cancel_reply())
+        await message.answer("عدد معتبر بفرستید")
         return
     if abs(gb) > MAX_EXTEND_GB:
         await message.answer(
             f"گیگ باید بین ±{MAX_EXTEND_GB} باشد",
-            reply_markup=kb.cancel_reply(),
         )
         return
     data = await state.get_data()
@@ -2930,7 +3255,7 @@ async def adm_svc_adjust_gb_entered(
         await state.set_state(None)
         await message.answer(
             "نشست منقضی شد — دوباره از منوی سرویس وارد شوید.",
-            reply_markup=kb.admin_users_reply_keyboard(),
+            reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()),
         )
         return
     adj_key = f"svcadj:{user_id}:{service_id}"
@@ -2939,7 +3264,7 @@ async def adm_svc_adjust_gb_entered(
     await state.set_state(None)
     await state.update_data(**{adj_key: {"days": days, "gb": gb}})
     # Restore reply submenu (cancel_reply displaced it); then show inline adjust UI.
-    await message.answer("👥 کاربران", reply_markup=kb.admin_users_reply_keyboard())
+    await message.answer("👥 کاربران", reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
     await message.answer(
         f"⏱ <b>تغییر مانده سرویس #{service_id}</b>\n\n"
         f"روز: <b>{days}</b> · گیگ: <b>{gb}</b>",
@@ -2947,7 +3272,6 @@ async def adm_svc_adjust_gb_entered(
             user_id, service_id, days=days, gb=gb
         ),
     )
-
 
 @router.callback_query(F.data.startswith("adm:users:block:"))
 @require_bot_owner_handler
@@ -2986,16 +3310,22 @@ async def adm_users_block(
             await _render_user_card(callback.message, session, user, edit=True)
         return
 
-    await state.set_state(AdminStates.block_user_reason)
     await state.update_data(block_user_id=user_id)
     await callback.answer()
     if callback.message:
-        await callback.message.answer(
-            f"علت مسدودسازی کاربر <code>{user.telegram_id}</code> را بنویسید "
-            "(حداقل ۳ کاراکتر — برای کاربر ارسال می‌شود):",
-            reply_markup=kb.cancel_reply(),
-        )
+        from app.bot.nav_input import ask_text
 
+        await ask_text(
+            callback,
+            state,
+            prompt=(
+                f"علت مسدودسازی کاربر <code>{user.telegram_id}</code> را بنویسید "
+                "(حداقل ۳ کاراکتر — برای کاربر ارسال می‌شود):"
+            ),
+            cancel_code="adm_usr",
+            fsm_state=AdminStates.block_user_reason,
+            edit=False,
+        )
 
 @router.message(AdminStates.block_user_reason)
 @require_bot_owner_handler
@@ -3007,7 +3337,18 @@ async def adm_users_block_reason(
         return
     if kb.is_cancel_text(message.text):
         await state.clear()
-        await message.answer("لغو شد.", reply_markup=kb.admin_users_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await _answer_users_nav(
+            message,
+            session,
+            db_user,
+            "لغو شد.",
+            state,
+            clear_state=True,
+        )
         return
     data = await state.get_data()
     user_id = int(data.get("block_user_id") or 0)
@@ -3018,7 +3359,7 @@ async def adm_users_block_reason(
     user, deny = await _platform_shop_user(session, user_id) if user_id else (None, "یافت نشد")
     if deny:
         await state.clear()
-        await message.answer(deny, reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer(deny, reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
         return
     from app.services.notifications import notify_account_edit
     from app.services.users import is_protected_admin
@@ -3027,7 +3368,7 @@ async def adm_users_block_reason(
         await state.clear()
         await message.answer(
             "مسدود کردن ادمین مجاز نیست.",
-            reply_markup=kb.admin_users_reply_keyboard(),
+            reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()),
         )
         return
     user.is_blocked = True
@@ -3042,10 +3383,9 @@ async def adm_users_block_reason(
     await state.clear()
     await message.answer(
         f"🚫 کاربر مسدود شد.\nعلت: {reason}",
-        reply_markup=kb.admin_users_reply_keyboard(),
+        reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()),
     )
     await _render_user_card(message, session, user, edit=False)
-
 
 @router.callback_query(F.data.startswith("adm:users:delask:"))
 @require_bot_owner_handler
@@ -3068,7 +3408,6 @@ async def adm_users_delask(callback: CallbackQuery, session: AsyncSession, db_us
             callback.message, session, user, confirm_delete=True, edit=True
         )
 
-
 @router.callback_query(F.data.startswith("adm:users:del:"))
 @require_bot_owner_handler
 async def adm_users_delete_ask_reason(
@@ -3089,15 +3428,21 @@ async def adm_users_delete_ask_reason(
         await callback.answer("حذف ادمین مجاز نیست", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(AdminStates.delete_user_reason)
     await state.update_data(delete_user_id=user_id)
     if callback.message:
-        await callback.message.answer(
-            f"علت حذف کامل کاربر <code>{user.telegram_id}</code> را بنویسید "
-            "(حداقل ۳ کاراکتر — برای خود کاربر ارسال می‌شود):\n\nبرای لغو: انصراف",
-            reply_markup=kb.cancel_reply(),
-        )
+        from app.bot.nav_input import ask_text
 
+        await ask_text(
+            callback,
+            state,
+            prompt=(
+                f"علت حذف کامل کاربر <code>{user.telegram_id}</code> را بنویسید "
+                "(حداقل ۳ کاراکتر — برای خود کاربر ارسال می‌شود):\n\nبرای لغو: انصراف"
+            ),
+            cancel_code="adm_usr",
+            fsm_state=AdminStates.delete_user_reason,
+            edit=False,
+        )
 
 @router.message(AdminStates.delete_user_reason)
 @require_bot_owner_handler
@@ -3109,7 +3454,18 @@ async def adm_users_delete_reason(
         return
     if kb.is_cancel_text(message.text):
         await state.clear()
-        await message.answer("لغو شد.", reply_markup=kb.admin_users_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await _answer_users_nav(
+            message,
+            session,
+            db_user,
+            "لغو شد.",
+            state,
+            clear_state=True,
+        )
         return
     reason = (message.text or "").strip()
     if len(reason) < 3:
@@ -3127,12 +3483,12 @@ async def adm_users_delete_reason(
 
     user, deny = await _platform_shop_user(session, user_id)
     if deny:
-        await message.answer(deny, reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer(deny, reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
         return
     if is_protected_admin(user):
         await message.answer(
             "حذف ادمین مجاز نیست.",
-            reply_markup=kb.admin_users_reply_keyboard(),
+            reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()),
         )
         return
 
@@ -3150,10 +3506,10 @@ async def adm_users_delete_reason(
             actor_user_id=db_user.id,
         )
     except ValueError as e:
-        await message.answer(user_safe_error(e), reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer(user_safe_error(e), reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
         return
     except Exception as e:
-        await message.answer(f"خطا: {user_safe_error(e)}", reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer(f"خطا: {user_safe_error(e)}", reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
         return
 
     # ReplyKeyboard cannot be attached via edit_text — that threw and surfaced
@@ -3161,9 +3517,8 @@ async def adm_users_delete_reason(
     await message.answer(
         f"🗑 کاربر <code>{info.get('telegram_id')}</code> ({html.escape(str(info.get('name') or '—'))}) "
         f"حذف شد.\nعلت: {html.escape(reason)}",
-        reply_markup=kb.admin_users_reply_keyboard(),
+        reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()),
     )
-
 
 @router.callback_query(F.data.startswith("adm:users:unres:"))
 @require_bot_owner_handler
@@ -3184,15 +3539,21 @@ async def adm_users_unreseller_ask(
         await callback.answer("این کاربر نماینده نیست", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(AdminStates.revoke_reseller_reason)
     await state.update_data(revoke_user_id=user_id)
     if callback.message:
-        await callback.message.answer(
-            f"علت حذف نمایندگی کاربر <code>{user.telegram_id}</code> را بنویسید "
-            "(برای خود کاربر ارسال می‌شود):\n\nبرای لغو: انصراف",
-            reply_markup=kb.cancel_reply(),
-        )
+        from app.bot.nav_input import ask_text
 
+        await ask_text(
+            callback,
+            state,
+            prompt=(
+                f"علت حذف نمایندگی کاربر <code>{user.telegram_id}</code> را بنویسید "
+                "(برای خود کاربر ارسال می‌شود):\n\nبرای لغو: انصراف"
+            ),
+            cancel_code="adm_usr",
+            fsm_state=AdminStates.revoke_reseller_reason,
+            edit=False,
+        )
 
 @router.message(AdminStates.revoke_reseller_reason)
 @require_bot_owner_handler
@@ -3204,7 +3565,18 @@ async def adm_users_unreseller_reason(
         return
     if kb.is_cancel_text(message.text):
         await state.clear()
-        await message.answer("لغو شد.", reply_markup=kb.admin_users_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await _answer_users_nav(
+            message,
+            session,
+            db_user,
+            "لغو شد.",
+            state,
+            clear_state=True,
+        )
         return
     reason = (message.text or "").strip()
     if len(reason) < 3:
@@ -3218,7 +3590,7 @@ async def adm_users_unreseller_reason(
         return
     _user, deny = await _platform_shop_user(session, user_id)
     if deny:
-        await message.answer(deny, reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer(deny, reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
         return
 
     from app.services.resellers import notify_reseller_revoked, revoke_reseller
@@ -3228,10 +3600,10 @@ async def adm_users_unreseller_reason(
             session, user_id, delete_pg_admin=True, reason=reason
         )
     except ValueError as e:
-        await message.answer(f"خطا: {user_safe_error(e)}", reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer(f"خطا: {user_safe_error(e)}", reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
         return
     except Exception as e:
-        await message.answer(f"خطا: {user_safe_error(e)}", reply_markup=kb.admin_users_reply_keyboard())
+        await message.answer(f"خطا: {user_safe_error(e)}", reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()))
         return
 
     user = await session.get(BotUser, user_id)
@@ -3249,40 +3621,37 @@ async def adm_users_unreseller_reason(
     note = "پیام علت ارسال شد ✅" if notified else "پیام تلگرام ارسال نشد ⚠️"
     await message.answer(
         f"🤝 نمایندگی حذف شد.\nعلت: {reason}\n{note}",
-        reply_markup=kb.admin_users_reply_keyboard(),
+        reply_markup=await _staff_reply(session, db_user, kb.admin_users_reply_keyboard()),
     )
     if user:
         await _render_user_card(message, session, user)
 
-
 @router.callback_query(F.data == "adm:resellers")
 @require_bot_owner_handler
 @require_platform_rep_mgmt
-async def adm_resellers(callback: CallbackQuery, db_user: BotUser, state: FSMContext | None = None):
+async def adm_resellers(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    db_user: BotUser,
+    state: FSMContext | None = None,
+):
     if not _is_admin(db_user):
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
     if callback.message:
-        from app.bot.tg_utils import safe_edit_text
+        from app.bot.handlers.reply_nav import open_admin_resellers_hub
 
-        await safe_edit_text(
+        await open_admin_resellers_hub(
             callback.message,
-            "🤝 <b>نمایندگان</b>\nاز کیبورد پایین بخش موردنظر را انتخاب کنید.",
-            reply_markup=None,
+            session,
+            db_user,
+            state,
+            push=False,
+            is_reseller_bot=False,
         )
-        await callback.message.answer(
-            "پنل نمایندگان:",
-            reply_markup=kb.admin_resellers_reply_keyboard(),
-        )
-        if state is not None:
-            from app.bot import menu_nav as nav
-
-            await nav.set_nav_level(state, nav.NAV_ADMIN_RESELLERS, push=False)
-
 
 RESELLERS_PAGE_SIZE = 10
-
 
 @router.callback_query(F.data.startswith("adm:resellers:list:"))
 @require_bot_owner_handler
@@ -3329,16 +3698,16 @@ async def adm_resellers_list(callback: CallbackQuery, session: AsyncSession, db_
     if not users:
         text += "\n\nنماینده‌ای ثبت نشده."
     if callback.message:
-        await callback.message.edit_text(
-            text,
-            reply_markup=kb.admin_resellers_list_keyboard(
-                page=page, has_prev=has_prev, has_next=has_next, rows=rows
-            ),
-        )
+        from app.bot.nav_inline import with_inline_back
 
+        ui = await get_all_settings(session)
+        markup = kb.admin_resellers_list_keyboard(
+            page=page, has_prev=has_prev, has_next=has_next, rows=rows
+        )
+        markup = with_inline_back(markup, ui, "nv:adm:resellers")
+        await callback.message.edit_text(text, reply_markup=markup)
 
 RESELLER_SVCS_PAGE_SIZE = 10
-
 
 async def _render_reseller_card(
     message: Message,
@@ -3388,7 +3757,6 @@ async def _render_reseller_card(
             pass
     await message.answer(text, reply_markup=markup)
 
-
 @router.callback_query(F.data.startswith("adm:resellers:view:"))
 @require_bot_owner_handler
 @require_platform_rep_mgmt
@@ -3406,7 +3774,6 @@ async def adm_resellers_view(
     await callback.answer()
     if callback.message:
         await _render_reseller_card(callback.message, session, user, edit=True)
-
 
 @router.callback_query(F.data.regexp(r"^adm:resellers:tag:\d+$"))
 @require_bot_owner_handler
@@ -3439,7 +3806,6 @@ async def adm_resellers_tag_picker(
             "یکی از چهار سطح را انتخاب کنید:",
             reply_markup=kb.admin_reseller_risk_tag_keyboard(user.id, current=cur),
         )
-
 
 @router.callback_query(F.data.regexp(r"^adm:resellers:tagset:\d+:[a-z]+$"))
 @require_bot_owner_handler
@@ -3480,7 +3846,6 @@ async def adm_resellers_tag_set(
     await callback.answer(f"ذخیره شد: {bot_tag_button_label(key)}"[:180])
     if callback.message:
         await _render_reseller_card(callback.message, session, user, edit=True)
-
 
 @router.callback_query(F.data.startswith("adm:resellers:capadj:"))
 @require_bot_owner_handler
@@ -3537,24 +3902,34 @@ async def adm_resellers_capacity_adjust(
         await state.update_data(
             **{adj_key: {"days": days, "gb": gb}, "capadj_uid": user_id}
         )
-        await state.set_state(AdminStates.reseller_cap_days_input)
         await callback.answer()
         if callback.message:
-            await callback.message.answer(
-                f"تعداد روز تغییر را وارد کنید (±{MAX_ADJUST_DAYS}، منفی = کاهش):",
-                reply_markup=kb.cancel_reply(),
+            from app.bot.nav_input import ask_text
+
+            await ask_text(
+                callback,
+                state,
+                prompt=f"تعداد روز تغییر را وارد کنید (±{MAX_ADJUST_DAYS}، منفی = کاهش):",
+                cancel_code="adm_cap",
+                fsm_state=AdminStates.reseller_cap_days_input,
+                edit=False,
             )
         return
     elif action == "gb" and detail == "input":
         await state.update_data(
             **{adj_key: {"days": days, "gb": gb}, "capadj_uid": user_id}
         )
-        await state.set_state(AdminStates.reseller_cap_gb_input)
         await callback.answer()
         if callback.message:
-            await callback.message.answer(
-                f"مقدار گیگ تغییر را وارد کنید (±{MAX_ADJUST_GB}، منفی = کاهش):",
-                reply_markup=kb.cancel_reply(),
+            from app.bot.nav_input import ask_text
+
+            await ask_text(
+                callback,
+                state,
+                prompt=f"مقدار گیگ تغییر را وارد کنید (±{MAX_ADJUST_GB}، منفی = کاهش):",
+                cancel_code="adm_cap",
+                fsm_state=AdminStates.reseller_cap_gb_input,
+                edit=False,
             )
         return
     elif action == "confirm":
@@ -3610,7 +3985,6 @@ async def adm_resellers_capacity_adjust(
             ),
         )
 
-
 @router.message(AdminStates.reseller_cap_days_input)
 @require_bot_owner_handler
 async def adm_reseller_cap_days_entered(
@@ -3619,8 +3993,37 @@ async def adm_reseller_cap_days_entered(
     if not _is_admin(db_user):
         return
     if kb.is_cancel_text(message.text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        data = await state.get_data()
+        user_id = int(data.get("capadj_uid") or 0)
         await state.set_state(None)
-        await message.answer("لغو شد.")
+        from app.bot.nav_chrome import heal_main_reply
+
+        await heal_main_reply(
+            message,
+            session,
+            db_user,
+            text="لغو شد.",
+            is_reseller_bot=False,
+            reseller_owner_id=None,
+        )
+        if user_id and message:
+            # Resend capacity adjust panel at bottom.
+            adj_key = f"capadj:{user_id}"
+            stored = data.get(adj_key) if isinstance(data.get(adj_key), dict) else {}
+            await message.answer(
+                f"⏱ <b>تغییر ظرفیت نماینده #{user_id}</b>\n\n"
+                f"روز: <b>{int(stored.get('days') or 0)}</b> · "
+                f"گیگ: <b>{int(stored.get('gb') or 0)}</b>",
+                reply_markup=kb.admin_reseller_capacity_adjust_keyboard(
+                    user_id,
+                    days=int(stored.get("days") or 0),
+                    gb=int(stored.get("gb") or 0),
+                ),
+            )
         return
     from app.services.pg_admin_subscription import MAX_ADJUST_DAYS
 
@@ -3651,7 +4054,6 @@ async def adm_reseller_cap_days_entered(
         ),
     )
 
-
 @router.message(AdminStates.reseller_cap_gb_input)
 @require_bot_owner_handler
 async def adm_reseller_cap_gb_entered(
@@ -3660,8 +4062,36 @@ async def adm_reseller_cap_gb_entered(
     if not _is_admin(db_user):
         return
     if kb.is_cancel_text(message.text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        data = await state.get_data()
+        user_id = int(data.get("capadj_uid") or 0)
         await state.set_state(None)
-        await message.answer("لغو شد.")
+        from app.bot.nav_chrome import heal_main_reply
+
+        await heal_main_reply(
+            message,
+            session,
+            db_user,
+            text="لغو شد.",
+            is_reseller_bot=False,
+            reseller_owner_id=None,
+        )
+        if user_id and message:
+            adj_key = f"capadj:{user_id}"
+            stored = data.get(adj_key) if isinstance(data.get(adj_key), dict) else {}
+            await message.answer(
+                f"⏱ <b>تغییر ظرفیت نماینده #{user_id}</b>\n\n"
+                f"روز: <b>{int(stored.get('days') or 0)}</b> · "
+                f"گیگ: <b>{int(stored.get('gb') or 0)}</b>",
+                reply_markup=kb.admin_reseller_capacity_adjust_keyboard(
+                    user_id,
+                    days=int(stored.get("days") or 0),
+                    gb=int(stored.get("gb") or 0),
+                ),
+            )
         return
     from app.services.pg_admin_subscription import MAX_ADJUST_GB
 
@@ -3691,7 +4121,6 @@ async def adm_reseller_cap_gb_entered(
             user_id, days=days, gb=gb
         ),
     )
-
 
 @router.callback_query(F.data.startswith("adm:resellers:svcs:"))
 @require_bot_owner_handler
@@ -3803,7 +4232,6 @@ async def adm_resellers_services(
             ),
         )
 
-
 @router.callback_query(F.data == "adm:resellers:add")
 @require_bot_owner_handler
 @require_platform_rep_mgmt
@@ -3812,17 +4240,22 @@ async def adm_resellers_add(callback: CallbackQuery, state: FSMContext, db_user:
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(AdminStates.make_reseller)
-    if callback.message:
-        await callback.message.answer(
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        callback,
+        state,
+        prompt=(
             "آیدی عددی تلگرام کاربر را برای نماینده‌شدن بفرستید.\n\n"
             "مثال:\n"
             "<code>123456789 1</code>\n\n"
             "• عدد اول: آیدی تلگرام\n"
-            "• عدد دوم: ۱ = اجازه تأیید رسید، ۰ یا خالی = بدون تأیید",
-            reply_markup=kb.cancel_reply(),
-        )
-
+            "• عدد دوم: ۱ = اجازه تأیید رسید، ۰ یا خالی = بدون تأیید"
+        ),
+        cancel_code="adm_home",
+        fsm_state=AdminStates.make_reseller,
+        edit=True,
+    )
 
 @router.callback_query(F.data == "adm:resapp:list")
 @require_bot_owner_handler
@@ -3862,13 +4295,12 @@ async def adm_resapp_list(callback: CallbackQuery, session: AsyncSession, db_use
             f"{(plan.name if plan else '?')}"
         )
         rows.append([InlineKeyboardButton(text=label[:60], callback_data=f"adm:resapp:view:{a.id}")])
-    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="adm:resellers")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="nv:adm:resellers")])
     if callback.message:
         await callback.message.edit_text(
             "📋 درخواست‌های باز (پرداخت / تأیید):",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
-
 
 @router.callback_query(F.data.startswith("adm:resapp:view:"))
 @require_bot_owner_handler
@@ -3918,7 +4350,6 @@ async def adm_resapp_view(callback: CallbackQuery, session: AsyncSession, db_use
             reply_markup=kb.reseller_app_review(app.id, allow_approve=not pending_pay),
         )
 
-
 @router.callback_query(F.data.startswith("adm:resapp:ok:"))
 @require_bot_owner_handler
 @require_platform_rep_mgmt
@@ -3964,7 +4395,6 @@ async def adm_resapp_ok(callback: CallbackQuery, session: AsyncSession, db_user:
             reply_markup=None,
         )
 
-
 @router.callback_query(F.data.startswith("adm:resapp:no:"))
 @require_bot_owner_handler
 @require_platform_rep_mgmt
@@ -3999,7 +4429,6 @@ async def adm_resapp_no(callback: CallbackQuery, session: AsyncSession, db_user:
             reply_markup=None,
         )
 
-
 @router.message(AdminStates.make_reseller)
 @require_bot_owner_handler
 @require_platform_rep_mgmt
@@ -4011,8 +4440,25 @@ async def make_res(
         await message.answer("ادمین نیستید")
         return
     if kb.is_cancel_text(message.text):
-        await state.clear()
-        await message.answer("لغو شد.", reply_markup=await _admin_hub_kb(session, db_user))
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        from app.bot.handlers.reply_nav import open_admin_home
+        from app.bot.nav_chrome import answer_staff_nav
+
+        await answer_staff_nav(
+            message,
+            session,
+            db_user,
+            text="لغو شد.",
+            classic=None,
+            state=state,
+            reopen_panel=open_admin_home,
+            clear_state=True,
+            is_reseller_bot=False,
+            reseller_owner_id=None,
+        )
         return
     parts = (message.text or "").split()
     try:
@@ -4064,7 +4510,6 @@ async def make_res(
         reply_markup=await _admin_hub_kb(session, db_user),
     )
 
-
 @router.callback_query(F.data == "adm:tickets")
 @require_bot_owner_handler
 async def adm_tickets(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
@@ -4072,56 +4517,143 @@ async def adm_tickets(callback: CallbackQuery, session: AsyncSession, db_user: B
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
-    tickets = await list_open_tickets(session, platform_only=True)
-    if not tickets:
-        if callback.message:
-            await callback.message.edit_text("تیکت بازی نیست.", reply_markup=None)
-        return
-    rows = [
-        [InlineKeyboardButton(text=f"#{t.id} {t.subject[:24]}", callback_data=f"adm:ticket:{t.id}")]
-        for t in tickets[:20]
-    ]
     if callback.message:
-        await callback.message.edit_text(
-            "🎫 تیکت‌های باز:\n<i>بازگشت از کیبورد پایین</i>",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-        )
+        await _present_admin_tickets_list(callback.message, session, edit=True)
 
 
-@router.callback_query(F.data.startswith("adm:ticket:"))
+async def _load_platform_ticket(
+    session: AsyncSession, ticket_id: int
+) -> tuple[Ticket | None, str | None]:
+    ticket = await get_ticket(session, int(ticket_id))
+    if not ticket:
+        return None, "یافت نشد"
+    if ticket.reseller_id:
+        return None, "این تیکت متعلق به فروشگاه نماینده است"
+    ticket_user = await session.get(BotUser, int(ticket.user_id))
+    if ticket_user and ticket_user.reseller_id:
+        return None, "این تیکت متعلق به فروشگاه نماینده است"
+    return ticket, None
+
+
+def _ticket_thread_text(ticket: Ticket) -> str:
+    lines = [f"🎫 #{ticket.id} — {html.escape(ticket.subject or '')}"]
+    for m in (ticket.messages or [])[-12:]:
+        who = "پشتیبانی" if m.is_staff else "کاربر"
+        lines.append(f"<b>{who}:</b> {html.escape(m.body or '')}")
+    return "\n".join(lines)
+
+
+@router.callback_query(F.data.regexp(r"^adm:ticket:\d+$"))
 @require_bot_owner_handler
-async def adm_ticket_view(callback: CallbackQuery, session: AsyncSession, db_user: BotUser, state: FSMContext):
+async def adm_ticket_view(
+    callback: CallbackQuery, session: AsyncSession, db_user: BotUser, state: FSMContext
+):
+    """Show ticket thread with Reply / Close — do not enter reply FSM yet."""
     if not _is_admin(db_user):
         await callback.answer("ادمین نیستید", show_alert=True)
         return
-    ticket = await get_ticket(session, int(callback.data.split(":")[-1]))
-    if not ticket:
-        await callback.answer("یافت نشد", show_alert=True)
+    try:
+        tid = int((callback.data or "").rsplit(":", 1)[-1])
+    except ValueError:
+        await callback.answer("نامعتبر", show_alert=True)
         return
-    if ticket.reseller_id:
-        await callback.answer("این تیکت متعلق به فروشگاه نماینده است", show_alert=True)
-        return
-    ticket_user = await session.get(BotUser, int(ticket.user_id))
-    if ticket_user and ticket_user.reseller_id:
-        await callback.answer("این تیکت متعلق به فروشگاه نماینده است", show_alert=True)
+    ticket, deny = await _load_platform_ticket(session, tid)
+    if deny:
+        await callback.answer(deny, show_alert=True)
         return
     await callback.answer()
-    lines = [f"🎫 #{ticket.id} — {html.escape(ticket.subject or '')}"]
-    for m in ticket.messages[-12:]:
-        who = "پشتیبانی" if m.is_staff else "کاربر"
-        lines.append(f"<b>{who}:</b> {html.escape(m.body or '')}")
-    await state.set_state(AdminStates.ticket_reply)
-    await state.update_data(ticket_id=ticket.id)
+    await state.set_state(None)
+    ui = await get_all_settings(session)
     if callback.message:
-        await callback.message.edit_text("\n".join(lines))
-        await callback.message.answer("پاسخ را بنویسید:", reply_markup=kb.cancel_reply())
+        await callback.message.edit_text(
+            _ticket_thread_text(ticket),
+            reply_markup=_admin_ticket_actions_markup(ticket.id, ui),
+        )
+
+
+@router.callback_query(F.data.regexp(r"^adm:ticket:reply:\d+$"))
+@require_bot_owner_handler
+async def adm_ticket_reply_start(
+    callback: CallbackQuery, session: AsyncSession, db_user: BotUser, state: FSMContext
+):
+    if not _is_admin(db_user):
+        await callback.answer("ادمین نیستید", show_alert=True)
+        return
+    try:
+        tid = int((callback.data or "").rsplit(":", 1)[-1])
+    except ValueError:
+        await callback.answer("نامعتبر", show_alert=True)
+        return
+    ticket, deny = await _load_platform_ticket(session, tid)
+    if deny:
+        await callback.answer(deny, show_alert=True)
+        return
+    from app.db.models import TicketStatus
+
+    if ticket.status == TicketStatus.CLOSED.value:
+        await callback.answer("تیکت بسته است", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(ticket_id=ticket.id)
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        callback,
+        state,
+        prompt="پاسخ را بنویسید:",
+        cancel_code="adm_tkt",
+        fsm_state=AdminStates.ticket_reply,
+        edit=False,
+    )
+
+
+@router.callback_query(F.data.regexp(r"^adm:ticket:close:\d+$"))
+@require_bot_owner_handler
+async def adm_ticket_close(
+    callback: CallbackQuery, session: AsyncSession, db_user: BotUser, state: FSMContext
+):
+    if not _is_admin(db_user):
+        await callback.answer("ادمین نیستید", show_alert=True)
+        return
+    try:
+        tid = int((callback.data or "").rsplit(":", 1)[-1])
+    except ValueError:
+        await callback.answer("نامعتبر", show_alert=True)
+        return
+    ticket, deny = await _load_platform_ticket(session, tid)
+    if deny:
+        await callback.answer(deny, show_alert=True)
+        return
+    from app.db.models import TicketStatus
+    from app.services.tickets import close_ticket
+
+    if ticket.status == TicketStatus.CLOSED.value:
+        await callback.answer("قبلاً بسته شده", show_alert=True)
+    else:
+        await close_ticket(session, ticket)
+        await callback.answer("تیکت بسته شد ✅", show_alert=True)
+    await state.set_state(None)
+    if callback.message:
+        await _present_admin_tickets_list(callback.message, session, edit=True)
 
 
 @router.message(AdminStates.ticket_reply)
-async def adm_ticket_reply(message: Message, state: FSMContext, session: AsyncSession, db_user: BotUser):
+async def adm_ticket_reply(
+    message: Message, state: FSMContext, session: AsyncSession, db_user: BotUser
+):
     if kb.is_cancel_text(message.text):
-        await state.clear()
-        await message.answer("لغو شد.", reply_markup=await _admin_hub_kb(session, db_user))
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await _answer_tickets_nav(
+            message,
+            session,
+            db_user,
+            "لغو شد.",
+            state,
+            clear_state=True,
+        )
         return
     data = await state.get_data()
     ticket = await session.get(Ticket, data.get("ticket_id"))
@@ -4129,13 +4661,25 @@ async def adm_ticket_reply(message: Message, state: FSMContext, session: AsyncSe
         await state.clear()
         return
     if ticket.reseller_id:
-        await state.clear()
-        await message.answer("دسترسی به تیکت فروشگاه ندارید.", reply_markup=await _admin_hub_kb(session, db_user))
+        await _answer_tickets_nav(
+            message,
+            session,
+            db_user,
+            "دسترسی به تیکت فروشگاه ندارید.",
+            state,
+            clear_state=True,
+        )
         return
     ticket_user = await session.get(BotUser, int(ticket.user_id))
     if ticket_user and ticket_user.reseller_id:
-        await state.clear()
-        await message.answer("دسترسی به تیکت فروشگاه ندارید.", reply_markup=await _admin_hub_kb(session, db_user))
+        await _answer_tickets_nav(
+            message,
+            session,
+            db_user,
+            "دسترسی به تیکت فروشگاه ندارید.",
+            state,
+            clear_state=True,
+        )
         return
     await reply_ticket(session, ticket, message.text or "", db_user.telegram_id, is_staff=True)
     await state.clear()
@@ -4155,26 +4699,39 @@ async def adm_ticket_reply(message: Message, state: FSMContext, session: AsyncSe
         )
     except Exception:
         pass
-    await message.answer("ارسال شد ✅", reply_markup=await _admin_hub_kb(session, db_user))
-
+    await _answer_tickets_nav(
+        message,
+        session,
+        db_user,
+        "ارسال شد ✅",
+        state,
+        clear_state=False,
+    )
 
 @router.callback_query(F.data == "adm:broadcast")
 @require_bot_owner_handler
-async def adm_broadcast_start(callback: CallbackQuery, db_user: BotUser, state: FSMContext):
+async def adm_broadcast_start(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    db_user: BotUser,
+    state: FSMContext,
+):
     if not _is_admin(db_user):
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
     await state.clear()
     if callback.message:
-        await callback.message.edit_text(
-            "📢 <b>پیام گروهی</b>\nمخاطب را از کیبورد پایین انتخاب کنید."
-        )
-        await callback.message.answer(
-            "مخاطب پیام گروهی:",
-            reply_markup=kb.admin_broadcast_reply_keyboard(),
-        )
+        from app.bot.handlers.reply_nav import open_admin_broadcast_hub
 
+        await open_admin_broadcast_hub(
+            callback.message,
+            session,
+            db_user,
+            state,
+            push=False,
+            is_reseller_bot=False,
+        )
 
 @router.callback_query(F.data.startswith("adm:broadcast:aud:"))
 @require_bot_owner_handler
@@ -4187,7 +4744,6 @@ async def adm_broadcast_audience(callback: CallbackQuery, db_user: BotUser, stat
         await callback.answer("نامعتبر", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(AdminStates.broadcast_text)
     await state.update_data(broadcast_audience=audience)
     audience_fa = {
         "all": "همه",
@@ -4199,8 +4755,16 @@ async def adm_broadcast_audience(callback: CallbackQuery, db_user: BotUser, stat
         await callback.message.edit_text(
             f"📢 مخاطب: <b>{audience_fa}</b>\nمتن پیام را بفرستید (HTML ساده).\nبرای لغو: انصراف"
         )
-        await callback.message.answer("متن پیام:", reply_markup=kb.cancel_reply())
+        from app.bot.nav_input import ask_text
 
+        await ask_text(
+            callback,
+            state,
+            prompt="متن پیام:",
+            cancel_code="adm_bc",
+            fsm_state=AdminStates.broadcast_text,
+            edit=False,
+        )
 
 @router.message(AdminStates.broadcast_text)
 @require_bot_owner_handler
@@ -4209,10 +4773,24 @@ async def adm_broadcast_send(message: Message, state: FSMContext, session: Async
         await state.clear()
         return
     if kb.is_cancel_text(message.text):
-        await state.clear()
-        await message.answer(
-            "لغو شد.",
-            reply_markup=kb.admin_broadcast_reply_keyboard(),
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        from app.bot.handlers.reply_nav import open_admin_broadcast_hub
+        from app.bot.nav_chrome import answer_staff_nav
+
+        await answer_staff_nav(
+            message,
+            session,
+            db_user,
+            text="لغو شد.",
+            classic=None,
+            state=state,
+            reopen_panel=open_admin_broadcast_hub,
+            clear_state=True,
+            is_reseller_bot=False,
+            reseller_owner_id=None,
         )
         return
     data = await state.get_data()
@@ -4240,29 +4818,34 @@ async def adm_broadcast_send(message: Message, state: FSMContext, session: Async
         reply_markup=await _admin_hub_kb(session, db_user),
     )
 
-
 @router.callback_query(F.data == "adm:pg:stats")
 @require_bot_owner_handler
-async def pg_stats(callback: CallbackQuery, db_user: BotUser):
+async def pg_stats(
+    callback: CallbackQuery, session: AsyncSession, db_user: BotUser
+):
     if not _is_admin(db_user):
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     from app.bot.auth import can_platform_pg_page
+    from app.bot.nav_inline import with_inline_back
 
     if not await can_platform_pg_page(db_user, "pg_overview"):
         await callback.answer("به نمای کلی دسترسی ندارید", show_alert=True)
         return
     await callback.answer()
+    ui = await get_all_settings(session)
+    markup = with_inline_back(None, ui, "nv:adm:pg")
     try:
         stats = await get_pg().get_system_stats()
     except Exception as e:
         if callback.message:
-            await callback.message.edit_text(f"خطا: {user_safe_error(e)}", reply_markup=None)
+            await callback.message.edit_text(
+                f"خطا: {user_safe_error(e)}", reply_markup=markup
+            )
         return
     text = "🏠 <b>نمای کلی پاسارگارد</b>\n\n" + format_system_stats(stats)
     if callback.message:
-        await callback.message.edit_text(text[:3500], reply_markup=None)
-
+        await callback.message.edit_text(text[:3500], reply_markup=markup)
 
 # Node ops: app.bot.handlers.admin_pg_nodes (web /pg/nodes parity)
 

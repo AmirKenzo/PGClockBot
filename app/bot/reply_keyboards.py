@@ -27,6 +27,8 @@ REPLY_ACTION_SVC_ADDON = "svc_addon"
 REPLY_ACTION_SVC_AUTO = "svc_auto"
 REPLY_ACTION_SVC_REFRESH = "svc_refresh"
 REPLY_ACTION_SVC_DELETE = "svc_delete"
+REPLY_ACTION_SVC_GUIDE = "svc_guide"
+REPLY_ACTION_SVC_CANCEL = "svc_cancel"
 REPLY_ACTION_REV_OK = "rev_ok"
 REPLY_ACTION_REV_NO = "rev_no"
 BTN_REV_OK = "🟢✅ تأیید"
@@ -145,8 +147,14 @@ def _reply_user_entries(
     ui: dict | None,
     show_reseller_creds: bool = False,
     profile=None,
+    show_reseller_apply: bool = False,
 ) -> list[tuple[str, str]]:
-    """Ordered (action_key, button_text) for the customer/reseller reply keyboard."""
+    """Ordered (action_key, button_text) for the customer/reseller reply keyboard.
+
+    ``reseller_apply`` appears on the main KB when enabled (platform bot only;
+    callers pass ``show_reseller_apply=False`` on shop bots). Also still on
+    support inline. Mini App is a web_app KeyboardButton on the main KB.
+    """
     entries: list[tuple[str, str]] = []
     for key in _menu_order(ui):
         if key == "shop":
@@ -161,11 +169,17 @@ def _reply_user_entries(
             # Feature toggle wins over menu_order presence.
             if on(_t(ui, "loyalty_enabled")):
                 entries.append((REPLY_ACTION_LOYALTY, _t(ui, "btn_loyalty")))
-        elif key == "reseller_apply" and role == Role.USER.value and not show_reseller_creds:
-            entries.append((REPLY_ACTION_RESELLER_APPLY, _t(ui, "btn_reseller_apply")))
+        elif key == "reseller_apply":
+            if show_reseller_apply:
+                entries.append(
+                    (
+                        REPLY_ACTION_RESELLER_APPLY,
+                        _t(ui, "btn_reseller_apply") or "🤝 درخواست نمایندگی",
+                    )
+                )
         elif key == "miniapp":
-            # WebApp requires inline buttons — shown separately under welcome
-            continue
+            # web_app KeyboardButton — packed specially in _pack_reply_rows
+            entries.append(("miniapp", _t(ui, "btn_miniapp") or "📱 مینی‌اپ"))
         elif key == "services" and not has_services:
             continue
     if role == Role.RESELLER.value:
@@ -183,20 +197,19 @@ def _reply_user_entries(
 
 
 def _reply_admin_hub_entries(ui: dict | None = None) -> list[tuple[str, str]]:
-    """Top-level admin groups (level 0 / NAV_ADMIN) — keeps the hub short."""
-    _ = ui
+    """Top-level admin groups — labels from web-panel settings."""
     return [
-        (REPLY_ACTION_ADM_HUB_OPS, "🗓 عملیات روزانه"),
-        (REPLY_ACTION_ADM_HUB_PEOPLE, "👤 افراد"),
-        (REPLY_ACTION_ADM_HUB_PRODUCT, "📦 محصول و PG"),
-        (REPLY_ACTION_ADM_HUB_SYSTEM, "🛠 سیستم"),
+        (REPLY_ACTION_ADM_HUB_OPS, _t(ui, "btn_adm_hub_ops")),
+        (REPLY_ACTION_ADM_HUB_PEOPLE, _t(ui, "btn_adm_hub_people")),
+        (REPLY_ACTION_ADM_HUB_PRODUCT, _t(ui, "btn_adm_hub_product")),
+        (REPLY_ACTION_ADM_HUB_SYSTEM, _t(ui, "btn_adm_hub_system")),
     ]
 
 
 def _reply_admin_ops_entries(ui: dict | None = None) -> list[tuple[str, str]]:
     return [
-        (REPLY_ACTION_ADMIN_DASH, "📊 داشبورد"),
-        (REPLY_ACTION_ADMIN_REPORTS, "📈 گزارشات"),
+        (REPLY_ACTION_ADMIN_DASH, _t(ui, "btn_adm_dash")),
+        (REPLY_ACTION_ADMIN_REPORTS, _t(ui, "btn_adm_reports")),
         (REPLY_ACTION_ADMIN_ORDERS, _t(ui, "btn_adm_orders")),
         (REPLY_ACTION_ADMIN_PAYMENTS, _t(ui, "btn_adm_payments")),
         (REPLY_ACTION_ADMIN_TICKETS, _t(ui, "btn_adm_tickets")),
@@ -210,8 +223,8 @@ def _reply_admin_people_entries(
 ) -> list[tuple[str, str]]:
     entries = [
         (REPLY_ACTION_ADMIN_USERS, _t(ui, "btn_adm_users")),
-        (REPLY_ACTION_ADMIN_RESELLERS, "🤝 نمایندگان"),
-        (REPLY_ACTION_ADMIN_LOYALTY, "⭐ باشگاه مشتریان"),
+        (REPLY_ACTION_ADMIN_RESELLERS, _t(ui, "btn_adm_resellers")),
+        (REPLY_ACTION_ADMIN_LOYALTY, _t(ui, "btn_adm_loyalty")),
     ]
     if not can_manage_representatives:
         entries = [e for e in entries if e[0] != REPLY_ACTION_ADMIN_RESELLERS]
@@ -236,7 +249,7 @@ def _reply_admin_system_entries(ui: dict | None = None) -> list[tuple[str, str]]
     return [
         (REPLY_ACTION_ADMIN_SETTINGS, _t(ui, "btn_adm_settings")),
         (REPLY_ACTION_ADMIN_BROADCAST, _t(ui, "btn_adm_broadcast")),
-        (REPLY_ACTION_ADMIN_BACKUP, "💾 بکاپ / ریستور"),
+        (REPLY_ACTION_ADMIN_BACKUP, _t(ui, "btn_adm_backup")),
         (REPLY_ACTION_ADMIN_PREVIEW, _t(ui, "btn_adm_preview")),
     ]
 
@@ -313,6 +326,8 @@ def _admin_settings_submenu_entries(ui: dict | None = None) -> list[tuple[str, s
         ("adm_st_pay", "پرداخت"),
         ("adm_st_support", "پشتیبان‌ها"),
         ("adm_st_access", "دسترسی"),
+        ("adm_st_limits", "محدودیت"),
+        ("adm_st_guides", "آموزش اتصال"),
         ("adm_st_notify", "اعلان‌ها"),
         (REPLY_ACTION_ADM_ST_PANEL, "🌐 وب‌پنل"),
     ]
@@ -424,6 +439,8 @@ def _reseller_settings_submenu_entries(ui: dict | None = None) -> list[tuple[str
         ("res_st_pay", "پرداخت"),
         ("res_st_support", "پشتیبان‌ها"),
         ("res_st_access", "دسترسی"),
+        ("res_st_limits", "محدودیت"),
+        ("res_st_guides", "آموزش اتصال"),
         ("res_st_notify", "اعلان‌ها"),
         ("res_st_bot", "ربات"),
         (REPLY_ACTION_RES_ST_PANEL, "🌐 وب‌پنل"),
@@ -557,8 +574,7 @@ def _reseller_submenu_entries(
         entries.append(("res_loyalty", "⭐ باشگاه مشتریان"))
     if shop_feature_allowed(key="shop_settings", profile=profile):
         entries.append(("res_settings", "⚙️ تنظیمات فروشگاه"))
-    # Shop owner is admin of their bot — preview customer keyboard
-    entries.append((REPLY_ACTION_RES_PREVIEW, "👁 پیش‌نمایش منوی کاربر"))
+    # Preview lives on thin reply KB (reseller_hub_main_keyboard), not manage hub.
     return entries
 
 
@@ -568,14 +584,19 @@ def reseller_hub_main_keyboard(
     *,
     can_add_representative: bool = False,
 ) -> ReplyKeyboardMarkup:
-    """Primary keyboard for shop owner/staff on their dedicated bot (like admin hub)."""
-    entries = _reseller_submenu_entries(
-        profile, can_add_representative=can_add_representative
-    )
-    rows = _pack_reply_rows(entries, ui, footer=[(REPLY_ACTION_HOME, _home_label(ui))])
+    """Thin level-0 reply KB for shop owner/staff (Option B).
+
+    Nested manage leaves live on the edited inline hub.
+    """
+    _ = (profile, can_add_representative)  # ACL applied inside inline hub
+    entries = [
+        (REPLY_ACTION_RESELLER, _t(ui, "btn_reseller") or "🤝 پنل نماینده"),
+        (REPLY_ACTION_RES_PREVIEW, _t(ui, "btn_adm_preview")),
+    ]
+    rows = _pack_reply_rows(entries, ui, footer=[])
     return _reply_markup(
         rows or [[_kb(_home_label(ui), action=REPLY_ACTION_HOME, ui=ui)]],
-        placeholder="پنل مدیریت فروشگاه…",
+        placeholder="از منوی پایین انتخاب کنید…",
     )
 
 
@@ -611,6 +632,17 @@ def _topup_method_entries(ui: dict | None = None) -> list[tuple[str, str]]:
     return entries
 
 
+def _pack_reply_button(action: str, text: str, ui: dict | None) -> KeyboardButton | None:
+    """Build one reply button; Mini App uses web_app (no text-message action)."""
+    if action == "miniapp":
+        from app.bot.nav_inline import miniapp_reply_button
+
+        return miniapp_reply_button(ui)
+    if not (text or "").strip():
+        return None
+    return _kb(text, action=action, ui=ui)
+
+
 def _pack_reply_rows(
     entries: list[tuple[str, str]],
     ui: dict | None,
@@ -619,15 +651,19 @@ def _pack_reply_rows(
     footer_row: list[str | tuple[str, str]] | None = None,
 ) -> list[list[KeyboardButton]]:
     layout = _menu_layout(ui)
-    items = [(a, t) for a, t in entries if (t or "").strip()]
+    items = [(a, t) for a, t in entries if (t or "").strip() or a == "miniapp"]
     rows: list[list[KeyboardButton]] = []
     if layout == "compact":
         for i in range(0, len(items), 2):
             chunk = items[i : i + 2]
-            rows.append([_kb(t, action=a, ui=ui) for a, t in chunk])
+            btns = [b for a, t in chunk if (b := _pack_reply_button(a, t, ui)) is not None]
+            if btns:
+                rows.append(btns)
     else:
         for a, t in items:
-            rows.append([_kb(t, action=a, ui=ui)])
+            btn = _pack_reply_button(a, t, ui)
+            if btn is not None:
+                rows.append([btn])
 
     def _footer_btns(items_in: list[str | tuple[str, str]]) -> list[KeyboardButton]:
         out: list[KeyboardButton] = []
@@ -666,29 +702,47 @@ def main_reply_keyboard(
     ui: dict | None = None,
     as_user: bool = False,
     show_reseller_creds: bool = False,
+    show_reseller_apply: bool | None = None,
     profile=None,
     pg_features: frozenset[str] | set[str] | None = None,
     can_manage_representatives: bool = True,
+    preview_exit_action: str | None = None,
 ) -> ReplyKeyboardMarkup:
-    """Primary navigation reply keyboard (level 0)."""
-    home_label = _home_label(ui)
-    home_footer: list[tuple[str, str]] = [(REPLY_ACTION_HOME, home_label)]
-    if role == Role.ADMIN.value and not as_user:
-        # Platform admin: short 4-group hub (leaves live in group submenus)
-        _ = (pg_features, can_manage_representatives)  # ACL applied inside groups
-        entries = _reply_admin_hub_entries(ui)
-        rows = _pack_reply_rows(entries, ui, footer=home_footer)
-    else:
-        # Preview / customer surface — never append staff-only buttons
-        map_role = Role.USER.value if as_user else role
-        entries = _reply_user_entries(
-            map_role,
-            has_services=has_services,
-            ui=ui,
-            show_reseller_creds=False if as_user else show_reseller_creds,
-            profile=None if as_user else profile,
+    """Primary navigation reply keyboard (level 0, Option B).
+
+    Admin gets the customer menu + «پنل ادمین» (groups live on the inline panel).
+    ``as_user`` preview appends ``btn_adm_exit_preview`` when
+    ``preview_exit_action`` is set (admin or reseller escape).
+
+    ``show_reseller_apply``: ``None`` → infer from settings/menu_order (safe
+    default for forgotten callers). Shop bots must pass ``False`` explicitly
+    via ``build_main_reply_keyboard``.
+    """
+    _ = (pg_features, can_manage_representatives)  # ACL applied inside inline hubs
+    if show_reseller_apply is None:
+        show_reseller_apply = (
+            on((ui or {}).get("show_reseller_apply"))
+            and "reseller_apply" in set(_menu_order(ui))
         )
-        rows = _pack_reply_rows(entries, ui, footer=home_footer)
+    map_role = Role.USER.value if as_user else role
+    # Never offer apply on a real staff keyboard (preview/as_user is fine).
+    if not as_user and map_role != Role.USER.value:
+        show_reseller_apply = False
+    entries = _reply_user_entries(
+        map_role,
+        has_services=has_services,
+        ui=ui,
+        show_reseller_creds=False if as_user else show_reseller_creds,
+        show_reseller_apply=bool(show_reseller_apply),
+        profile=None if as_user else profile,
+    )
+    if as_user and preview_exit_action:
+        exit_label = (
+            _t(ui, "btn_adm_exit_preview") or "🛠 بازگشت به پنل ادمین"
+        ).strip()
+        entries.append((preview_exit_action, exit_label))
+    # No Home row on level-0 (already at home).
+    rows = _pack_reply_rows(entries, ui, footer=[])
     return _reply_markup(rows, placeholder="از منوی پایین انتخاب کنید…")
 
 
@@ -959,10 +1013,31 @@ def reply_action_map(
     )
     reseller_actor = role == Role.RESELLER.value and is_reseller_bot
 
+    # Platform bot only — shop bots never expose reseller-apply CTA.
+    apply_on_main = (
+        not is_reseller_bot
+        and on(ui.get("show_reseller_apply") if ui else None)
+        and "reseller_apply" in set(_k._menu_order(ui))
+    )
     if platform_admin:
-        # Leaves first; hub groups overwrite any accidental label collision
-        for key, text in _reply_admin_entries(ui):
+        # Option B: main KB is customer menu + پنل ادمین
+        for key, text in _reply_user_entries(
+            role,
+            has_services=has_services,
+            ui=ui,
+            show_reseller_creds=show_reseller_creds,
+            show_reseller_apply=apply_on_main,
+            profile=profile if show_reseller_creds else None,
+        ):
+            if key == "miniapp":
+                continue
             mapping[(text or "").strip()] = key
+        admin_label = (_t(ui, "btn_admin") or "").strip()
+        if admin_label:
+            mapping[admin_label] = REPLY_ACTION_ADMIN
+        # Stale / inline-hub labels (leaves then hub groups)
+        for key, text in _reply_admin_entries(ui):
+            mapping.setdefault((text or "").strip(), key)
         for key, text in _reply_admin_hub_entries(ui):
             mapping[(text or "").strip()] = key
     else:
@@ -973,9 +1048,17 @@ def reply_action_map(
             has_services=has_services,
             ui=ui,
             show_reseller_creds=show_reseller_creds,
+            show_reseller_apply=apply_on_main and map_role == Role.USER.value,
             profile=profile if (show_reseller_creds and not is_reseller_bot) else None,
         ):
+            if key == "miniapp":
+                continue  # web_app button — no text action
             mapping[(text or "").strip()] = key
+        # Legacy: reseller-apply label stays mapped even when omitted from main KB
+        if map_role == Role.USER.value and not show_reseller_creds:
+            apply_label = (_t(ui, "btn_reseller_apply") or "").strip()
+            if apply_label:
+                mapping.setdefault(apply_label, REPLY_ACTION_RESELLER_APPLY)
         # L1 on the platform bot: register migrated PG submenu labels (not overview).
         if show_reseller_creds and not is_reseller_bot:
             l1_pg = frozenset(
@@ -986,9 +1069,23 @@ def reply_action_map(
             # Capacity labels (renew / extras) — also registered via _reply_user_entries
             for key, text in _reseller_capacity_entries(profile):
                 mapping[(text or "").strip()] = key
-        # Preview escape on main bot only
-        if role == Role.ADMIN.value and as_user and not is_reseller_bot:
-            mapping[(_t(ui, "btn_admin") or "").strip()] = REPLY_ACTION_ADMIN
+        # Preview escape — custom exit label (and legacy admin/reseller labels).
+        # ``as_user`` may be called with role="user" when merging preview labels
+        # into an admin/reseller filter map — still register the exit button.
+        if as_user:
+            exit_label = (
+                _t(ui, "btn_adm_exit_preview") or "🛠 بازگشت به پنل ادمین"
+            ).strip()
+            if is_reseller_bot:
+                mapping[exit_label] = REPLY_ACTION_RESELLER
+                res_label = (_t(ui, "btn_reseller") or "").strip()
+                if res_label:
+                    mapping[res_label] = REPLY_ACTION_RESELLER
+            else:
+                mapping[exit_label] = REPLY_ACTION_ADMIN
+                admin_label = (_t(ui, "btn_admin") or "").strip()
+                if admin_label:
+                    mapping[admin_label] = REPLY_ACTION_ADMIN
 
     if include_submenus:
         # Customer surfaces (wallet/support/loyalty/pay) — everyone except pure admin hub
@@ -1003,6 +1100,9 @@ def reply_action_map(
                 mapping[(text or "").strip()] = key
             for key, text in _topup_method_entries(ui):
                 mapping[(text or "").strip()] = key
+            # Legacy service-action reply labels (stale keyboards after Wave B)
+            for key, text in _service_action_entries(ui):
+                mapping.setdefault((text or "").strip(), key)
 
         if platform_admin:
             for key, text in _wallet_submenu_entries(ui):
@@ -1054,11 +1154,24 @@ def reply_action_map(
         if reseller_actor:
             from app.services.authz import shop_feature_allowed
 
-            # Fail closed: without a live profile, register no reseller panel labels
+            # Thin reply entry labels from settings (always, even without profile)
+            manage_label = (_t(ui, "btn_reseller") or "🤝 پنل نماینده").strip()
+            if manage_label:
+                mapping[manage_label] = REPLY_ACTION_RESELLER
+            # Legacy thin label from pre-settings keyboards
+            mapping.setdefault("🤝 پنل مدیریت", REPLY_ACTION_RESELLER)
+            preview_label = (_t(ui, "btn_adm_preview") or "").strip()
+            if preview_label:
+                mapping[preview_label] = REPLY_ACTION_RES_PREVIEW
+            mapping.setdefault("👁 پیش‌نمایش منوی کاربر", REPLY_ACTION_RES_PREVIEW)
+            # Fail closed: without a live profile, register no reseller panel leaves
             if profile is not None:
                 for key, text in _reseller_submenu_entries(
                     profile, can_add_representative=can_add_representative
                 ):
+                    # Thin entry owns the manage label; skip duplicate res_dash
+                    if key == "res_dash":
+                        continue
                     mapping[(text or "").strip()] = key
                 if shop_feature_allowed(key="shop_settings", profile=profile):
                     for key, text in _reseller_settings_submenu_entries(ui):
@@ -1118,6 +1231,8 @@ def reseller_apply_reply_keyboard(ui: dict | None = None) -> ReplyKeyboardMarkup
 def _service_action_entries(ui: dict | None = None) -> list[tuple[str, str]]:
     return [
         (REPLY_ACTION_SVC_LINK, _t(ui, "btn_sub_link")),
+        (REPLY_ACTION_SVC_GUIDE, _t(ui, "btn_guides") or "📘 آموزش اتصال"),
+        (REPLY_ACTION_SVC_CANCEL, "📝 درخواست لغو سرویس"),
         (REPLY_ACTION_SVC_RENEW, _t(ui, "btn_renew")),
         (REPLY_ACTION_SVC_ADDON, _t(ui, "btn_svc_addon") or "➕ حجم / زمان"),
         (REPLY_ACTION_SVC_AUTO, "⚙️ تنظیمات خودکار"),

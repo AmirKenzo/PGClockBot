@@ -106,8 +106,10 @@ def create_dispatcher() -> Dispatcher:
         admin_pg_users,
         admin_settings,
         loyalty,
+        nav_hubs,
         payments,
         plan_catalog_manage,
+        purchase_contact,
         reply_nav,
         reseller,
         reseller_plans,
@@ -126,10 +128,19 @@ def create_dispatcher() -> Dispatcher:
     dp.include_router(terms.router)
     # Reply-keyboard nav early so menu labels win over FSM amount parsers
     dp.include_router(reply_nav.router)
+    dp.include_router(nav_hubs.router)
+    from app.bot import nav_input as nav_input_mod
+    from app.bot import staff_cancel as _staff_cancel  # noqa: F401 — cancel registry
+
+    dp.include_router(nav_input_mod.router)
+    dp.include_router(purchase_contact.router)
     dp.include_router(loyalty.router)
     dp.include_router(shop.router)
     dp.include_router(wallet.router)
     dp.include_router(services.router)
+    from app.bot.handlers import guides
+
+    dp.include_router(guides.router)
     dp.include_router(support.router)
     dp.include_router(ticket_actions.router)
     dp.include_router(payments.router)

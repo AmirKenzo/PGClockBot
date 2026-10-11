@@ -19,6 +19,14 @@ from app.services.formatting import node_status_fa
 from app.services.redact import user_safe_error
 from app.services.pasarguard import get_pg
 
+
+async def _lasting_kb(session, db_user, classic):
+    from app.bot.nav_chrome import lasting_staff_reply
+    return await lasting_staff_reply(
+        session, db_user, classic=classic,
+        is_reseller_bot=False, reseller_owner_id=None,
+    )
+
 router = Router(name="admin_pg_nodes")
 
 
@@ -590,7 +598,16 @@ async def pg_node_create_start(
                 ]
             ),
         )
-        await callback.message.answer("نام نود:", reply_markup=kb.cancel_reply())
+        from app.bot.nav_input import ask_text
+
+        await ask_text(
+            callback,
+            state,
+            prompt="نام نود:",
+            cancel_code="adm_pg_n",
+            fsm_state=PgNodeStates.create_name,
+            edit=False,
+        )
 
 
 @router.message(PgNodeStates.create_name)
@@ -604,7 +621,11 @@ async def pg_node_create_name(
     reseller_owner_id: int | None = None,
 ):
     if kb.is_cancel_text(message.text):
-        await message.answer("انصراف.", reply_markup=kb.admin_product_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await message.answer("انصراف.", reply_markup=await _lasting_kb(session, db_user, kb.admin_product_reply_keyboard()))
         await state.clear()
         return
     gate = await _pg_object_gate(
@@ -627,7 +648,16 @@ async def pg_node_create_name(
     data["name"] = name
     await state.update_data(node_create=data)
     await state.set_state(PgNodeStates.create_address)
-    await message.answer("آدرس نود (IP یا دامنه):", reply_markup=kb.cancel_reply())
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        message,
+        state,
+        prompt="آدرس نود (IP یا دامنه):",
+        cancel_code="adm_pg_n",
+        fsm_state=PgNodeStates.create_address,
+        edit=False,
+    )
 
 
 @router.message(PgNodeStates.create_address)
@@ -641,7 +671,11 @@ async def pg_node_create_address(
     reseller_owner_id: int | None = None,
 ):
     if kb.is_cancel_text(message.text):
-        await message.answer("انصراف.", reply_markup=kb.admin_product_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await message.answer("انصراف.", reply_markup=await _lasting_kb(session, db_user, kb.admin_product_reply_keyboard()))
         await state.clear()
         return
     gate = await _pg_object_gate(
@@ -664,9 +698,15 @@ async def pg_node_create_address(
     data["address"] = address
     await state.update_data(node_create=data)
     await state.set_state(PgNodeStates.create_port)
-    await message.answer(
-        "پورت (عدد — یا «-» برای رد کردن):",
-        reply_markup=kb.cancel_reply(),
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        message,
+        state,
+        prompt="پورت (عدد — یا «-» برای رد کردن):",
+        cancel_code="adm_pg_n",
+        fsm_state=PgNodeStates.create_port,
+        edit=False,
     )
 
 
@@ -681,7 +721,11 @@ async def pg_node_create_port(
     reseller_owner_id: int | None = None,
 ):
     if kb.is_cancel_text(message.text):
-        await message.answer("انصراف.", reply_markup=kb.admin_product_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await message.answer("انصراف.", reply_markup=await _lasting_kb(session, db_user, kb.admin_product_reply_keyboard()))
         await state.clear()
         return
     gate = await _pg_object_gate(
@@ -751,7 +795,6 @@ async def pg_node_create_conn(
         return
     data["connection_type"] = conn
     await state.update_data(node_create=data)
-    await state.set_state(PgNodeStates.create_core)
     await callback.answer()
     if callback.message:
         await safe_edit_text(
@@ -763,7 +806,16 @@ async def pg_node_create_conn(
                 ]
             ),
         )
-        await callback.message.answer("شناسه هسته یا «-»:", reply_markup=kb.cancel_reply())
+        from app.bot.nav_input import ask_text
+
+        await ask_text(
+            callback,
+            state,
+            prompt="شناسه هسته یا «-»:",
+            cancel_code="adm_pg_n",
+            fsm_state=PgNodeStates.create_core,
+            edit=False,
+        )
 
 
 @router.message(PgNodeStates.create_core)
@@ -777,7 +829,11 @@ async def pg_node_create_core(
     reseller_owner_id: int | None = None,
 ):
     if kb.is_cancel_text(message.text):
-        await message.answer("انصراف.", reply_markup=kb.admin_product_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await message.answer("انصراف.", reply_markup=await _lasting_kb(session, db_user, kb.admin_product_reply_keyboard()))
         await state.clear()
         return
     gate = await _pg_object_gate(
@@ -802,7 +858,16 @@ async def pg_node_create_core(
             return
     await state.update_data(node_create=data)
     await state.set_state(PgNodeStates.create_api_key)
-    await message.answer("API Key (یا «-» برای رد):", reply_markup=kb.cancel_reply())
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        message,
+        state,
+        prompt="API Key (یا «-» برای رد):",
+        cancel_code="adm_pg_n",
+        fsm_state=PgNodeStates.create_api_key,
+        edit=False,
+    )
 
 
 @router.message(PgNodeStates.create_api_key)
@@ -816,7 +881,11 @@ async def pg_node_create_api_key(
     reseller_owner_id: int | None = None,
 ):
     if kb.is_cancel_text(message.text):
-        await message.answer("انصراف.", reply_markup=kb.admin_product_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await message.answer("انصراف.", reply_markup=await _lasting_kb(session, db_user, kb.admin_product_reply_keyboard()))
         await state.clear()
         return
     gate = await _pg_object_gate(
@@ -837,9 +906,15 @@ async def pg_node_create_api_key(
         data["api_key"] = raw
     await state.update_data(node_create=data)
     await state.set_state(PgNodeStates.create_server_ca)
-    await message.answer(
-        "Server CA (گواهی — چندخطی مجاز؛ یا «-» برای رد):",
-        reply_markup=kb.cancel_reply(),
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        message,
+        state,
+        prompt="Server CA (گواهی — چندخطی مجاز؛ یا «-» برای رد):",
+        cancel_code="adm_pg_n",
+        fsm_state=PgNodeStates.create_server_ca,
+        edit=False,
     )
 
 
@@ -859,7 +934,11 @@ async def pg_node_create_server_ca(
     )
 
     if kb.is_cancel_text(message.text):
-        await message.answer("انصراف.", reply_markup=kb.admin_product_reply_keyboard())
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
+        await message.answer("انصراف.", reply_markup=await _lasting_kb(session, db_user, kb.admin_product_reply_keyboard()))
         await state.clear()
         return
     gate = await _pg_object_gate(
@@ -882,7 +961,7 @@ async def pg_node_create_server_ca(
     address = str(data.get("address") or "").strip()
     if not name or not address:
         await state.set_state(None)
-        await message.answer("اطلاعات ناقص — از ابتدا شروع کنید.", reply_markup=kb.admin_product_reply_keyboard())
+        await message.answer("اطلاعات ناقص — از ابتدا شروع کنید.", reply_markup=await _lasting_kb(session, db_user, kb.admin_product_reply_keyboard()))
         return
     payload: dict = {
         "name": name,
@@ -905,10 +984,10 @@ async def pg_node_create_server_ca(
         await message.answer(
             f"ساخت نود ناموفق: {_err_msg(e)}\n"
             "علت محتمل: فیلدهای الزامی ناقص (api_key/گواهی).",
-            reply_markup=kb.admin_product_reply_keyboard(),
+            reply_markup=await _lasting_kb(session, db_user, kb.admin_product_reply_keyboard()),
         )
         return
-    await message.answer("نود ساخته شد ✅", reply_markup=kb.admin_product_reply_keyboard())
+    await message.answer("نود ساخته شد ✅", reply_markup=await _lasting_kb(session, db_user, kb.admin_product_reply_keyboard()))
     try:
         items = await list_scoped_pg_objects(gate, kind="nodes")
         await message.answer(

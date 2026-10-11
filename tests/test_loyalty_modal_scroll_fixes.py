@@ -51,6 +51,22 @@ class ModalScrollLockTests(unittest.TestCase):
         body = css.split(".settings-modal-body {", 1)[1].split("}", 1)[0]
         self.assertIn("overflow: visible;", body)
 
+    def test_edit_modal_body_is_not_nested_scroller(self):
+        """User/reseller edit fragments must not steal scroll from .ui-modal-scroll."""
+        css = CSS.read_text(encoding="utf-8")
+        body = css.split(".edit-modal-body {", 1)[1].split("}", 1)[0]
+        self.assertIn("flex: 0 0 auto;", body)
+        self.assertIn("overflow: visible;", body)
+        self.assertNotIn("overflow-x: hidden;", body)
+        self.assertNotIn("overflow-y: auto;", body)
+        users = (ROOT / "app/web/templates/users.html").read_text(encoding="utf-8")
+        self.assertIn('id="user-edit-body"', users)
+        self.assertIn("edit-modal-body", users)
+        resellers = (ROOT / "app/web/templates/resellers.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("edit-modal-body", resellers)
+
     def test_js_lock_helpers_exist(self):
         js = JS.read_text(encoding="utf-8")
         self.assertIn("function lockPageScroll", js)
@@ -79,22 +95,56 @@ class ModalScrollLockTests(unittest.TestCase):
         self.assertIn("opacity:", out_kf)
         self.assertNotIn("transform:", in_kf)
         self.assertNotIn("transform:", out_kf)
-        self.assertIn(
-            '.ui-modal-panel[data-scroll-shell="1"] > .ui-modal-scroll {',
-            css,
+        # Shared shell scroll rule (ui-modal + settings-modal)
+        shell_scroll_sel = (
+            '.ui-modal-panel[data-scroll-shell="1"] > .ui-modal-scroll,\n'
+            '.settings-modal-panel[data-scroll-shell="1"] > .ui-modal-scroll {'
         )
-        scroll_chrome = css.split(
-            '.ui-modal-panel[data-scroll-shell="1"] > .ui-modal-scroll {', 1
-        )[1].split("}", 1)[0]
+        self.assertIn(shell_scroll_sel, css)
+        scroll_chrome = css.split(shell_scroll_sel, 1)[1].split("}", 1)[0]
         self.assertIn("background: transparent;", scroll_chrome)
         # Equal vertical air: flex column + gap + symmetric padding
         self.assertIn("display: flex;", scroll_chrome)
         self.assertIn("flex-direction: column;", scroll_chrome)
         self.assertIn("gap: var(--space-3);", scroll_chrome)
         self.assertIn("padding: var(--space-3);", scroll_chrome)
+        # Both edges: RTL gutter mismatch + overlay thumbs on the physical right
+        self.assertIn("scrollbar-gutter: stable both-edges;", scroll_chrome)
+        self.assertIn(
+            "padding-inline: calc(var(--space-3) + var(--modal-scrollbar-room, 8px));",
+            scroll_chrome,
+        )
+        base_sel = ".ui-modal-scroll {\n"
+        self.assertIn(base_sel, css)
+        base_scroll = css.split(base_sel, 1)[1].split("}", 1)[0]
+        self.assertIn("scrollbar-gutter: stable both-edges;", base_scroll)
+        self.assertIn(".ui-modal-scroll::-webkit-scrollbar {", css)
+        # Global room stays 8px — #586's 14px narrowed every modal
+        self.assertIn("--modal-scrollbar-room: 8px;", css)
+        self.assertNotIn("--modal-scrollbar-room: 14px;", css)
+        # User-edit body must match shared shell padding (no extra 14px inset)
+        self.assertNotIn(
+            "#modal-user-edit .ui-modal-panel[data-scroll-shell=\"1\"] > .ui-modal-scroll {",
+            css,
+        )
+        self.assertNotIn("padding-inline: calc(var(--space-3) + 14px);", css)
+        # Head-outside-scroll is scoped to user-edit only (not all modals)
+        self.assertIn(
+            "#modal-user-edit .ui-modal-panel[data-scroll-shell=\"1\"] > .ui-modal-head {",
+            css,
+        )
+        self.assertNotIn(
+            '.settings-modal-panel[data-scroll-shell="1"] > .ui-modal-head {',
+            css,
+        )
         js = JS.read_text(encoding="utf-8")
         self.assertIn('panel.dataset.scrollShell = \'1\'', js)
         self.assertIn("corner clip", js)
+        self.assertIn("keepOutsideScroll", js)
+        self.assertIn("modal-user-edit", js)
+        self.assertIn("userEditOnly", js)
+        # Must not keep settings chrome outside scroll for every modal
+        self.assertNotIn("settings-modal-flash", js.split("ensureModalScrollShell")[1].split("function canScrollInside")[0])
 
 
 class ModalLayoutPolishTests(unittest.TestCase):

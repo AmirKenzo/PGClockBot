@@ -46,6 +46,12 @@ def ticket_action_markup(ticket_id: int) -> InlineKeyboardMarkup:
 # (setting_key, title, description, default "1"|"0")
 NOTIFY_PREFS: list[tuple[str, str, str, str]] = [
     (
+        "notify_service_cancellation",
+        "درخواست لغو سرویس",
+        "وقتی مشتری درخواست لغو سرویس ثبت می‌کند؛ همراه دلیل و لینک بررسی در پنل",
+        "1",
+    ),
+    (
         "notify_new_subscription",
         "اشتراک جدید",
         "وقتی سرویس/اشتراک جدید تحویل شد (خرید کیف‌پول یا تأیید پرداخت)",
@@ -99,6 +105,7 @@ PLATFORM_ONLY_NOTIFY_KEYS: frozenset[str] = frozenset(
 
 # Shop notify key → at least one of these feature perms is required to see/toggle it.
 SHOP_NOTIFY_PERM_MAP: dict[str, frozenset[str]] = {
+    "notify_service_cancellation": frozenset({"orders"}),
     "notify_new_subscription": frozenset({"orders", "payments"}),
     "notify_pending_approval": frozenset({"payments"}),
     "notify_new_order": frozenset({"orders"}),
@@ -641,6 +648,7 @@ async def notify_pending_approval(
     user_tg_id: int | None,
     *,
     user_name: str | None = None,
+    extra_note: str | None = None,
 ) -> None:
     settings = get_settings()
     user = await session.get(BotUser, payment.user_id) if payment.user_id else None
@@ -665,7 +673,11 @@ async def notify_pending_approval(
             lines.append(kv_line("🛒", "سفارش", f"#{payment.order_id}"))
         lines.extend(detail_lines)
 
-    text = format_message("⏳ نیاز به تأیید", info_block(lines) + "\n\nاز دکمه‌های زیر تأیید یا رد کنید.")
+    note = (extra_note or "").strip()
+    tail = "از دکمه‌های زیر تأیید یا رد کنید."
+    if note:
+        tail = f"{note}\n\n{tail}"
+    text = format_message("⏳ نیاز به تأیید", info_block(lines) + "\n\n" + tail)
     # Always payrev so shop staff can act on their own bot; ordrev is platform-only.
     markup = _approval_markup(payment_id=payment.id)
     # Wallet top-ups are platform-only; shop prefs never apply.

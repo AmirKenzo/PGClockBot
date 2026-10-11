@@ -14,8 +14,8 @@ from app.config import get_settings
 from app.db.models import BotUser, Payment, PaymentMethod, PaymentStatus
 from app.services.redact import user_safe_error
 from app.services.formatting import format_message, format_toman, kv_line
-from app.services.orders import attach_receipt, create_wallet_topup
-from app.services.receipts import process_receipt
+from app.services.orders import create_wallet_topup
+from app.services.receipts import submit_receipt
 from app.services.users import get_all_settings, on
 from app.services.wallet import list_activity
 from app.services.message_variables import DOMAIN_PAYMENT, render_message_template
@@ -29,13 +29,11 @@ _TOPUP_METHODS = {
     "crypto": ("pay_crypto_enabled", PaymentMethod.CRYPTO.value),
 }
 
-
 class WalletStates(StatesGroup):
     topup_amount = State()
     choose_method = State()
     waiting_receipt = State()
     gift_code = State()
-
 
 async def prompt_gift_code(
     message: Message,
@@ -44,17 +42,21 @@ async def prompt_gift_code(
     *,
     intro: str | None = None,
 ) -> None:
-    ui = await get_all_settings(session)
-    await state.set_state(WalletStates.gift_code)
-    await message.answer(
-        format_message(
+    from app.bot.nav_input import ask_text
+
+    _ = session
+    await ask_text(
+        message,
+        state,
+        prompt=format_message(
             "🎁 کد هدیه",
             intro
             or "کد شارژ/هدیه را وارد کنید:\n(یا دستور <code>/gift کد</code>)",
         ),
-        reply_markup=kb.cancel_reply(ui),
+        cancel_code="w_gift",
+        fsm_state=WalletStates.gift_code,
+        edit=False,
     )
-
 
 async def redeem_gift_for_user(
     message: Message,
@@ -98,7 +100,6 @@ async def redeem_gift_for_user(
     )
     return True
 
-
 @router.message(Command("gift"))
 async def cmd_gift(
     message: Message,
@@ -123,7 +124,6 @@ async def cmd_gift(
         return
     await prompt_gift_code(message, state, session)
 
-
 @router.message(WalletStates.gift_code)
 async def wallet_gift_code(
     message: Message,
@@ -134,9 +134,19 @@ async def wallet_gift_code(
     reseller_owner_id: int | None = None,
 ):
     from app.bot.menu_nav import restore_main_reply
+    from app.bot.nav_input import try_legacy_cancel
 
     ui = await get_all_settings(session)
     if kb.is_cancel_text(message.text) or kb.is_home_text(message.text, ui):
+        if await try_legacy_cancel(
+            message,
+            state,
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        ):
+            return
         await restore_main_reply(
             message,
             session,
@@ -149,10 +159,7 @@ async def wallet_gift_code(
         return
     code = (message.text or "").strip()
     if not code:
-        await message.answer(
-            "کد را وارد کنید یا انصراف بزنید.",
-            reply_markup=kb.cancel_reply(ui),
-        )
+        await message.answer("کد را وارد کنید یا انصراف بزنید.")
         return
     await redeem_gift_for_user(
         message,
@@ -163,7 +170,6 @@ async def wallet_gift_code(
         is_reseller_bot=is_reseller_bot,
         reseller_owner_id=reseller_owner_id,
     )
-
 
 @router.callback_query(F.data == "wallet:home")
 async def wallet_home(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
@@ -185,9 +191,11 @@ async def wallet_home(callback: CallbackQuery, session: AsyncSession, db_user: B
         ),
     )
     if callback.message:
-        await safe_edit_text(callback.message, text, reply_markup=None)
-        await callback.message.answer("کیف پول:", reply_markup=kb.wallet_reply_keyboard(ui))
+        from app.bot.nav_inline import wallet_hub_keyboard
 
+        await safe_edit_text(
+            callback.message, text, reply_markup=wallet_hub_keyboard(ui)
+        )
 
 @router.callback_query(F.data == "wallet:tx")
 async def wallet_tx(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
@@ -205,13 +213,13 @@ async def wallet_tx(callback: CallbackQuery, session: AsyncSession, db_user: Bot
             )
         body = "\n".join(lines)
     if callback.message:
+        from app.bot.nav_inline import wallet_hub_keyboard
+
         await safe_edit_text(
             callback.message,
             format_message("📜 تراکنش‌ها", body),
-            reply_markup=None,
+            reply_markup=wallet_hub_keyboard(ui),
         )
-        await callback.message.answer("کیف پول:", reply_markup=kb.wallet_reply_keyboard(ui))
-
 
 @router.callback_query(F.data == "wallet:topup")
 async def wallet_topup(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
@@ -229,21 +237,79 @@ async def wallet_topup(callback: CallbackQuery, state: FSMContext, session: Asyn
         await callback.answer("روش شارژ فعالی تنظیم نشده", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(WalletStates.topup_amount)
-    if callback.message:
-        await callback.message.answer(
-            format_message("➕ شارژ کیف پول", "مبلغ شارژ را به تومان وارد کنید:"),
-            reply_markup=kb.cancel_reply(),
-        )
+    if not callback.message:
+        return
+    from app.bot.nav_inline import present_inline_only, wallet_topup_presets_keyboard
 
+    await state.set_state(WalletStates.topup_amount)
+    await present_inline_only(
+        callback.message,
+        text=format_message(
+            "➕ شارژ کیف پول",
+            "مبلغ را انتخاب کنید یا «مبلغ دیگر» را بزنید:",
+        ),
+        inline=wallet_topup_presets_keyboard(ui),
+    )
+    return
+
+async def present_topup_methods(
+    message: Message,
+    session: AsyncSession,
+    db_user: BotUser,
+    state: FSMContext,
+    amount: int,
+    *,
+    is_reseller_bot: bool,
+    reseller_owner_id: int | None,
+    heal_main: bool = False,
+) -> None:
+    """After amount is known — show pay methods on the inline panel.
+
+    When ``heal_main`` is set (free-text amount left ``cancel_reply`` on the
+    ReplyKeyboard), restore the stable main keyboard *after* the inline methods
+    bubble so iOS keeps the custom menu.
+    """
+    ui = await get_all_settings(session)
+    await state.set_state(WalletStates.choose_method)
+    await state.update_data(topup_amount=amount)
+    from app.bot import menu_nav as nav
+    from app.bot.nav_inline import present_inline_only, topup_methods_keyboard
+
+    body = format_message(
+        "➕ شارژ کیف پول",
+        f"{kv_line('💰', 'مبلغ', f'<b>{format_toman(amount, get_settings().currency)}</b>')}\n\n"
+        + "روش واریز را انتخاب کنید:",
+    )
+    await nav.set_nav_level(state, nav.NAV_TOPUP_PAY, push=True)
+    await present_inline_only(
+        message, text=body, inline=topup_methods_keyboard(ui)
+    )
+    if heal_main:
+        from app.bot.menu_nav import build_main_reply_keyboard
+        from app.bot.tg_utils import attach_reply_keyboard
+
+        main_kb, _, _ = await build_main_reply_keyboard(
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        )
+        await attach_reply_keyboard(
+            message,
+            main_kb,
+            text="مبلغ ثبت شد — روش واریز را انتخاب کنید.",
+        )
+    return
 
 @router.message(WalletStates.topup_amount)
 async def wallet_topup_amount(message: Message, state: FSMContext, session: AsyncSession, db_user: BotUser,
     is_reseller_bot: bool = False, reseller_owner_id: int | None = None):
     from app.bot.menu_nav import restore_main_reply
+    from app.bot.nav_input import finish_text_step
 
     ui = await get_all_settings(session)
     if kb.is_cancel_text(message.text) or kb.is_home_text(message.text, ui):
+        # Legacy reply-label انصراف (stale cancel_reply keyboards).
         await restore_main_reply(
             message,
             session,
@@ -259,29 +325,34 @@ async def wallet_topup_amount(message: Message, state: FSMContext, session: Asyn
         if amount < 1000:
             raise ValueError
     except ValueError:
-        await message.answer(
-            format_message("⚠️ خطا", "مبلغ معتبر وارد کنید (حداقل ۱٬۰۰۰)."),
-            reply_markup=kb.cancel_reply(ui),
+        from app.bot.nav_input import ask_text
+
+        await ask_text(
+            message,
+            state,
+            prompt=format_message("⚠️ خطا", "مبلغ معتبر وارد کنید (حداقل ۱٬۰۰۰)."),
+            cancel_code="w_amt",
+            fsm_state=WalletStates.topup_amount,
         )
         return
+    # Inline cancel path — edit prompt into methods; no heal-only message.
+    from app.bot import menu_nav as nav
+    from app.bot.nav_inline import topup_methods_keyboard
+
+    body = format_message(
+        "➕ شارژ کیف پول",
+        f"{kv_line('💰', 'مبلغ', f'<b>{format_toman(amount, get_settings().currency)}</b>')}\n\n"
+        + "روش واریز را انتخاب کنید:",
+    )
     await state.set_state(WalletStates.choose_method)
     await state.update_data(topup_amount=amount)
-    from app.bot import menu_nav as nav
-
-    await nav.show_nav_keyboard(
+    await nav.set_nav_level(state, nav.NAV_TOPUP_PAY, push=True)
+    await finish_text_step(
         message,
-        session,
-        db_user,
-        nav.NAV_TOPUP_PAY,
-        text=format_message(
-            "➕ شارژ کیف پول",
-            f"{kv_line('💰', 'مبلغ', f'<b>{format_toman(amount, get_settings().currency)}</b>')}\n\n"
-            "روش واریز را از کیبورد پایین انتخاب کنید:",
-        ),
-        state=state,
-        push=True,
+        state,
+        text=body,
+        inline=topup_methods_keyboard(ui),
     )
-
 
 async def _topup_instructions(
     session: AsyncSession,
@@ -369,7 +440,6 @@ async def _topup_instructions(
         send_kw = {}
     rows.append([InlineKeyboardButton(text=ui.get("btn_back") or "بازگشت", callback_data="wallet:home")])
     return text, InlineKeyboardMarkup(inline_keyboard=rows), send_kw
-
 
 @router.callback_query(
     # Picker buttons are wtop:card:0:<dest_id> (order_id placeholder 0), matching shop pay:* shape.
@@ -526,12 +596,16 @@ async def wtop_choose_method(
     await state.set_state(WalletStates.waiting_receipt)
     await state.update_data(payment_id=payment.id, topup_amount=None)
     if callback.message:
-        await safe_edit_text(callback.message, text, reply_markup=markup, **send_kw)
-        await callback.message.answer(
-            "عکس رسید را بفرستید یا انصراف بزنید:",
-            reply_markup=kb.cancel_reply(ui),
-        )
+        from app.bot.nav_input import remember_prompt, with_cancel_row
 
+        hint = "\n\nعکس رسید را بفرستید یا انصراف بزنید:"
+        await safe_edit_text(
+            callback.message,
+            text + hint,
+            reply_markup=with_cancel_row(markup, "w_rcpt"),
+            **send_kw,
+        )
+        await remember_prompt(state, callback.message, cancel_code="w_rcpt")
 
 @router.message(WalletStates.choose_method)
 async def wallet_choose_method_cancel(
@@ -543,9 +617,19 @@ async def wallet_choose_method_cancel(
     reseller_owner_id: int | None = None,
 ):
     from app.bot.menu_nav import restore_main_reply
+    from app.bot.nav_input import try_legacy_cancel
 
     ui = await get_all_settings(session)
     if kb.is_cancel_text(message.text) or kb.is_home_text(message.text, ui):
+        if await try_legacy_cancel(
+            message,
+            state,
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        ):
+            return
         await restore_main_reply(
             message,
             session,
@@ -556,11 +640,7 @@ async def wallet_choose_method_cancel(
             reseller_owner_id=reseller_owner_id,
         )
         return
-    await message.answer(
-        "روش واریز را از کیبورد پایین انتخاب کنید یا انصراف بزنید.",
-        reply_markup=kb.cancel_reply(ui),
-    )
-
+    await message.answer("روش واریز را از دکمه‌های پیام انتخاب کنید یا انصراف بزنید.")
 
 @router.message(WalletStates.waiting_receipt, F.photo)
 async def wallet_receipt_photo(
@@ -586,13 +666,14 @@ async def wallet_receipt_photo(
             reseller_owner_id=reseller_owner_id,
         )
         return
-    file_id = message.photo[-1].file_id
-    await attach_receipt(session, payment, file_id)
+    photo = message.photo[-1]
     await state.clear()
-    text = await process_receipt(
+    text = await submit_receipt(
         session,
         payment,
         bot=message.bot,
+        file_id=photo.file_id,
+        file_unique_id=getattr(photo, "file_unique_id", None),
         user_tg_id=message.from_user.id if message.from_user else None,
     )
     # Always leave payment/cancel keyboards — delivery already attaches main KB on auto-approve
@@ -611,7 +692,6 @@ async def wallet_receipt_photo(
 
         await clear_checkout_nav(state)
 
-
 @router.message(WalletStates.waiting_receipt)
 async def wallet_receipt_cancel(
     message: Message,
@@ -622,9 +702,19 @@ async def wallet_receipt_cancel(
     reseller_owner_id: int | None = None,
 ):
     from app.bot.menu_nav import restore_main_reply
+    from app.bot.nav_input import try_legacy_cancel
 
     ui = await get_all_settings(session)
     if kb.is_cancel_text(message.text) or kb.is_home_text(message.text, ui):
+        if await try_legacy_cancel(
+            message,
+            state,
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        ):
+            return
         await restore_main_reply(
             message,
             session,
@@ -635,11 +725,7 @@ async def wallet_receipt_cancel(
             reseller_owner_id=reseller_owner_id,
         )
         return
-    await message.answer(
-        "عکس رسید را بفرستید یا انصراف بزنید.",
-        reply_markup=kb.cancel_reply(ui),
-    )
-
+    await message.answer("عکس رسید را بفرستید یا انصراف بزنید.")
 
 @router.message(F.photo)
 async def generic_receipt(
@@ -669,11 +755,13 @@ async def generic_receipt(
     payment = result.scalar_one_or_none()
     if not payment:
         return
-    await attach_receipt(session, payment, message.photo[-1].file_id)
-    text = await process_receipt(
+    photo = message.photo[-1]
+    text = await submit_receipt(
         session,
         payment,
         bot=message.bot,
+        file_id=photo.file_id,
+        file_unique_id=getattr(photo, "file_unique_id", None),
         user_tg_id=message.from_user.id if message.from_user else None,
     )
     # Leave pay-method / cancel reply keyboards after receipt (success or pending review)
@@ -692,3 +780,24 @@ async def generic_receipt(
         from app.bot.menu_nav import clear_checkout_nav
 
         await clear_checkout_nav(state)
+
+
+def _register_wallet_cancel_codes() -> None:
+    from app.bot.nav_input import CancelEntry, register_cancel_code
+
+    async def _reopen_topup(message, session, db_user, state, **_kw):
+        from app.bot.handlers.reply_nav import open_wallet_topup
+
+        await open_wallet_topup(message, session, state)
+
+    async def _reopen_wallet_home(message, session, db_user, state, **_kw):
+        from app.bot.handlers.reply_nav import open_wallet_home
+
+        await open_wallet_home(message, session, db_user, state, push=False)
+
+    register_cancel_code("w_amt", CancelEntry(reopen=_reopen_topup))
+    register_cancel_code("w_rcpt", CancelEntry(reopen=_reopen_topup))
+    register_cancel_code("w_gift", CancelEntry(reopen=_reopen_wallet_home))
+
+
+_register_wallet_cancel_codes()

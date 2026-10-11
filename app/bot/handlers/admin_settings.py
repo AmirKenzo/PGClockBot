@@ -33,6 +33,14 @@ from app.services.settings_button_labels import (
     shop_button_subs,
 )
 
+
+async def _lasting_kb(session, db_user, classic):
+    from app.bot.nav_chrome import lasting_staff_reply
+    return await lasting_staff_reply(
+        session, db_user, classic=classic,
+        is_reseller_bot=False, reseller_owner_id=None,
+    )
+
 router = Router(name="admin_settings")
 
 
@@ -136,10 +144,6 @@ SECTIONS: dict[str, dict] = {
     "pay": {
         "title": "پرداخت",
         "subs": [
-            ("referral", "معرف اجباری", [
-                ("referral_required", "معرف اجباری", "toggle"),
-                ("referral_required_text", "پیام دریافت معرف", "textarea"),
-            ]),
             ("methods", "روش‌های فعال", [
                 ("pay_wallet_enabled", "کیف پول", "toggle"),
                 ("pay_card_enabled", "کارت به کارت", "toggle"),
@@ -207,6 +211,25 @@ SECTIONS: dict[str, dict] = {
                 ("show_sub_link_in_text", "لینک در کپشن", "toggle"),
                 ("qr_caption", "کپشن QR", "textarea"),
             ]),
+        ],
+    },
+    "limits": {
+        "title": "محدودیت",
+        "subs": [
+            ("referral", "معرف اجباری", [
+                ("referral_required", "معرف اجباری", "toggle"),
+                ("referral_required_text", "پیام دریافت معرف", "textarea"),
+            ]),
+            ("trial_gate", "اکانت تست", [
+                ("trial_require_contact", "تأیید شماره تماس", "toggle"),
+                ("trial_require_iran_phone", "فقط شماره ایران", "toggle"),
+            ]),
+            ("purchase_contact", "شماره تماس خرید", [
+                ("purchase_require_contact", "شماره تماس اجباری", "toggle"),
+            ]),
+            ("receipt_dup", "ضدتقلب رسید", [
+                ("receipt_dup_policy", "رسید تکراری (warn/block)", "text"),
+            ]),
             ("force", "کانال اجباری", [
                 ("force_join_enabled", "فعال", "toggle"),
                 ("force_join_channel", "کانال‌ها (هر خط یکی)", "text"),
@@ -227,6 +250,18 @@ SECTIONS: dict[str, dict] = {
                 ("terms_buy_reseller_text", "متن قوانین خرید نماینده", "textarea"),
                 ("terms_buy_reseller_btn", "دکمه موافقت خرید نماینده", "text"),
                 ("terms_buy_reseller_reaccept", "پذیرش مجدد خرید نماینده", "toggle"),
+            ]),
+        ],
+    },
+    "guides": {
+        "title": "آموزش اتصال",
+        "subs": [
+            ("labels", "متن دکمه‌ها", [
+                ("btn_guides", "دکمه فهرست آموزش", "text"),
+                ("btn_guide_open_link", "دکمه لینک اشتراک", "text"),
+            ]),
+            ("hint", "ویرایش آموزش‌ها", [
+                ("connection_guides", "JSON آموزش‌ها (از وب‌پنل)", "textarea"),
             ]),
         ],
     },
@@ -251,7 +286,7 @@ SECTIONS: dict[str, dict] = {
 }
 
 # Reply-keyboard hub only — deep «service» stays reachable via plans callbacks.
-HUB_ORDER = ["shop", "menu", "pay", "support", "access", "notify"]
+HUB_ORDER = ["shop", "menu", "pay", "support", "access", "limits", "guides", "notify"]
 
 
 CUSTOM_PRICE: list[Field] = [
@@ -301,7 +336,14 @@ FIELDS = _field_lookup()
 NOTIFY_KEYS: frozenset[str] = frozenset(key for key, *_ in NOTIFY_PREFS)
 
 # Extra toggles rendered outside SECTIONS field lists
-EXTRA_TOGGLE_KEYS: frozenset[str] = frozenset({"custom_plan_enabled", "trial_enabled"}) | NOTIFY_KEYS
+EXTRA_TOGGLE_KEYS: frozenset[str] = frozenset(
+    {
+        "custom_plan_enabled",
+        "trial_enabled",
+        "trial_require_contact",
+        "trial_require_iran_phone",
+    }
+) | NOTIFY_KEYS
 
 
 def _is_toggleable_setting_key(key: str) -> bool:
@@ -384,7 +426,8 @@ async def _panel_link_row(
 
 
 async def _render_hub(callback: CallbackQuery, *, refresh_keyboard: bool = False) -> None:
-    """Back to the settings hub. Section list lives on the reply keyboard."""
+    """Back to the settings hub (inline panel / tip). Reply chrome healed elsewhere."""
+    _ = refresh_keyboard  # legacy flag; lasting KB is restored on cancel/save only
     rows: list[list[InlineKeyboardButton]] = []
     panel_row = await _panel_link_row(for_shop=False)
     if panel_row:
@@ -395,15 +438,6 @@ async def _render_hub(callback: CallbackQuery, *, refresh_keyboard: bool = False
             _SETTINGS_HUB_TEXT,
             reply_markup=markup,
         )
-        if not refresh_keyboard:
-            return
-        try:
-            await callback.message.answer(
-                "کیبورد تنظیمات:",
-                reply_markup=kb.admin_settings_reply_keyboard(),
-            )
-        except Exception:
-            pass
 
 
 async def _render_section(callback: CallbackQuery, session: AsyncSession, sec_id: str) -> None:
@@ -805,17 +839,23 @@ async def _finish_settings_text_edit(
     message: Message,
     state: FSMContext,
     session: AsyncSession,
+    db_user: BotUser,
     *,
     loc: tuple[str, str] | None,
     note: str = "✅ ذخیره شد.",
 ) -> None:
-    """Confirm save, restore settings reply KB, return to previous subsection.
+    """Confirm save, restore lasting reply KB, return to previous subsection.
 
-    No dual «بازگشت» rows — hub chrome is never forced here.
+    Under inline nav the lasting KB is the stable main menu (not settings chrome).
     """
     await state.clear()
     await _keep_settings_nav(state)
-    await message.answer(note, reply_markup=kb.admin_settings_reply_keyboard())
+    await message.answer(
+        note,
+        reply_markup=await _lasting_kb(
+            session, db_user, kb.admin_settings_reply_keyboard()
+        ),
+    )
     try:
         await _answer_settings_location(message, session, loc)
     except Exception:
@@ -936,7 +976,6 @@ async def settings_edit_ask(
         cur = format_force_join_for_edit(cur)
     loc = _owner_screen_for_key(key)
     await callback.answer()
-    await state.set_state(SettingsStates.edit_value)
     await state.update_data(edit_key=key, edit_loc=loc)
     hint = "عدد بفرستید." if kind == "number" else "متن جدید را بفرستید.\nبرای انصراف: انصراف"
     if key == "force_join_channel":
@@ -951,11 +990,16 @@ async def settings_edit_ask(
             )
         elif is_message_rich_key(key):
             hint += "\n<i>ایموجی پریمیوم در متن پیام حفظ می‌شود.</i>"
-    if callback.message:
-        await callback.message.answer(
-            f"<b>{label}</b>\nفعلی:\n<code>{_preview(cur)}</code>\n\n{hint}",
-            reply_markup=kb.cancel_reply(),
-        )
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        callback,
+        state,
+        prompt=f"<b>{label}</b>\nفعلی:\n<code>{_preview(cur)}</code>\n\n{hint}",
+        cancel_code="adm_set",
+        fsm_state=SettingsStates.edit_value,
+        edit=True,
+    )
 
 
 @settings_actor_required
@@ -972,11 +1016,16 @@ async def settings_edit_save(
     loc = data.get("edit_loc")
     text = (message.text or "").strip()
     if kb.is_cancel_text(text) or not key:
+        if kb.is_cancel_text(text):
+            from app.bot.nav_input import try_legacy_cancel
+
+            if await try_legacy_cancel(message, state, session, db_user):
+                return
         await state.clear()
         await _keep_settings_nav(state)
         await message.answer(
             "لغو شد.",
-            reply_markup=kb.admin_settings_reply_keyboard(),
+            reply_markup=await _lasting_kb(session, db_user, kb.admin_settings_reply_keyboard()),
         )
         return
     meta = FIELDS.get(key)
@@ -994,13 +1043,28 @@ async def settings_edit_save(
         from app.services.users import normalize_force_join_channel_value
 
         text = normalize_force_join_channel_value(text)
+    elif key == "receipt_dup_policy":
+        from app.services.receipt_fingerprints import normalize_dup_policy
+
+        text = normalize_dup_policy(text)
+    elif key == "connection_guides":
+        import json as _json
+
+        from app.services.connection_guides import serialize_connection_guides
+
+        try:
+            parsed = _json.loads(text) if text else []
+        except _json.JSONDecodeError:
+            await message.answer("JSON نامعتبر است. از وب‌پنل → آموزش اتصال ویرایش کنید.")
+            return
+        text = serialize_connection_guides(parsed if isinstance(parsed, list) else [])
         await set_setting(session, key, text)
     else:
         from app.services.rich_text import pack_setting_from_message
 
         text = pack_setting_from_message(key, message)
         await set_setting(session, key, text)
-    await _finish_settings_text_edit(message, state, session, loc=loc)
+    await _finish_settings_text_edit(message, state, session, db_user, loc=loc)
 
 
 @settings_actor_required
@@ -1076,13 +1140,17 @@ async def support_add_start(
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(SettingsStates.support_title)
     await state.update_data(support_edit_id=None)
-    if callback.message:
-        await callback.message.answer(
-            "عنوان پشتیبان (مثلاً پشتیبان ربات):",
-            reply_markup=kb.cancel_reply(),
-        )
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        callback,
+        state,
+        prompt="عنوان پشتیبان (مثلاً پشتیبان ربات):",
+        cancel_code="adm_set",
+        fsm_state=SettingsStates.support_title,
+        edit=True,
+    )
 
 
 @settings_actor_required
@@ -1100,18 +1168,27 @@ async def support_title_msg(
         return
     text = (message.text or "").strip()
     if kb.is_cancel_text(text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
         await state.clear()
         await _keep_settings_nav(state)
         await message.answer(
             "لغو شد.",
-            reply_markup=kb.admin_settings_reply_keyboard(),
+            reply_markup=await _lasting_kb(session, db_user, kb.admin_settings_reply_keyboard()),
         )
         return
     await state.update_data(support_title=text)
-    await state.set_state(SettingsStates.support_telegram)
-    await message.answer(
-        "یوزرنیم یا آیدی تلگرام را بفرستید:\n<code>@user</code> یا عدد",
-        reply_markup=kb.cancel_reply(),
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        message,
+        state,
+        prompt="یوزرنیم یا آیدی تلگرام را بفرستید:\n<code>@user</code> یا عدد",
+        cancel_code="adm_set",
+        fsm_state=SettingsStates.support_telegram,
+        edit=False,
     )
 
 
@@ -1126,11 +1203,15 @@ async def support_telegram_msg(
         return
     text = (message.text or "").strip()
     if kb.is_cancel_text(text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
         await state.clear()
         await _keep_settings_nav(state)
         await message.answer(
             "لغو شد.",
-            reply_markup=kb.admin_settings_reply_keyboard(),
+            reply_markup=await _lasting_kb(session, db_user, kb.admin_settings_reply_keyboard()),
         )
         return
     data = await state.get_data()
@@ -1342,13 +1423,17 @@ async def support_edit_start(
         await callback.answer("یافت نشد", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(SettingsStates.support_title)
     await state.update_data(support_edit_id=cid)
-    if callback.message:
-        await callback.message.answer(
-            f"عنوان جدید (فعلی: {c['title']}):",
-            reply_markup=kb.cancel_reply(),
-        )
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        callback,
+        state,
+        prompt=f"عنوان جدید (فعلی: {c['title']}):",
+        cancel_code="adm_set",
+        fsm_state=SettingsStates.support_title,
+        edit=True,
+    )
 
 
 @settings_actor_required
@@ -1396,9 +1481,16 @@ async def trial_ask_name(callback: CallbackQuery, state: FSMContext, db_user: Bo
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(SettingsStates.trial_name)
-    if callback.message:
-        await callback.message.answer("نام پلن تست:", reply_markup=kb.cancel_reply())
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        callback,
+        state,
+        prompt="نام پلن تست:",
+        cancel_code="adm_set",
+        fsm_state=SettingsStates.trial_name,
+        edit=True,
+    )
 
 
 @settings_actor_required
@@ -1412,21 +1504,21 @@ async def trial_save_name(
         return
     text = (message.text or "").strip()
     if kb.is_cancel_text(text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
         await state.clear()
         await _keep_settings_nav(state)
         await message.answer(
             "لغو شد.",
-            reply_markup=kb.admin_settings_reply_keyboard(),
+            reply_markup=await _lasting_kb(session, db_user, kb.admin_settings_reply_keyboard()),
         )
         return
     trial = await _ensure_trial(session)
     trial.name = text[:128]
     await session.commit()
-    await _finish_settings_text_edit(
-        message,
-        state,
-        session,
-        loc=("service", "trial"),
+    await _finish_settings_text_edit(message, state, session, db_user, loc=("service", "trial"),
     )
 
 
@@ -1437,9 +1529,16 @@ async def trial_ask_days(callback: CallbackQuery, state: FSMContext, db_user: Bo
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(SettingsStates.trial_days)
-    if callback.message:
-        await callback.message.answer("مدت به روز:", reply_markup=kb.cancel_reply())
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        callback,
+        state,
+        prompt="مدت به روز:",
+        cancel_code="adm_set",
+        fsm_state=SettingsStates.trial_days,
+        edit=True,
+    )
 
 
 @settings_actor_required
@@ -1453,11 +1552,15 @@ async def trial_save_days(
         return
     text = (message.text or "").strip()
     if kb.is_cancel_text(text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
         await state.clear()
         await _keep_settings_nav(state)
         await message.answer(
             "لغو شد.",
-            reply_markup=kb.admin_settings_reply_keyboard(),
+            reply_markup=await _lasting_kb(session, db_user, kb.admin_settings_reply_keyboard()),
         )
         return
     try:
@@ -1468,11 +1571,7 @@ async def trial_save_days(
     trial = await _ensure_trial(session)
     trial.duration_days = days
     await session.commit()
-    await _finish_settings_text_edit(
-        message,
-        state,
-        session,
-        loc=("service", "trial"),
+    await _finish_settings_text_edit(message, state, session, db_user, loc=("service", "trial"),
     )
 
 
@@ -1483,9 +1582,16 @@ async def trial_ask_gb(callback: CallbackQuery, state: FSMContext, db_user: BotU
         await callback.answer("ادمین نیستید", show_alert=True)
         return
     await callback.answer()
-    await state.set_state(SettingsStates.trial_gb)
-    if callback.message:
-        await callback.message.answer("حجم به گیگ (۰ = نامحدود):", reply_markup=kb.cancel_reply())
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        callback,
+        state,
+        prompt="حجم به گیگ (۰ = نامحدود):",
+        cancel_code="adm_set",
+        fsm_state=SettingsStates.trial_gb,
+        edit=True,
+    )
 
 
 @settings_actor_required
@@ -1499,11 +1605,15 @@ async def trial_save_gb(
         return
     text = (message.text or "").strip()
     if kb.is_cancel_text(text):
+        from app.bot.nav_input import try_legacy_cancel
+
+        if await try_legacy_cancel(message, state, session, db_user):
+            return
         await state.clear()
         await _keep_settings_nav(state)
         await message.answer(
             "لغو شد.",
-            reply_markup=kb.admin_settings_reply_keyboard(),
+            reply_markup=await _lasting_kb(session, db_user, kb.admin_settings_reply_keyboard()),
         )
         return
     try:
@@ -1514,11 +1624,7 @@ async def trial_save_gb(
     trial = await _ensure_trial(session)
     trial.data_limit_gb = None if gb <= 0 else gb
     await session.commit()
-    await _finish_settings_text_edit(
-        message,
-        state,
-        session,
-        loc=("service", "trial"),
+    await _finish_settings_text_edit(message, state, session, db_user, loc=("service", "trial"),
     )
 
 

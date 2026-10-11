@@ -114,8 +114,12 @@ class ChannelAwareUpdateCheckTests(unittest.IsolatedAsyncioTestCase):
         async def fake_get(url, **kwargs):
             u = str(url)
             calls.append(u)
-            if "VERSION" in u:
+            if u.rstrip("/").endswith("/VERSION") or "/VERSION?" in u or "/dev/VERSION" in u:
                 return _FakeResp(200, text="9.9.9\n")
+            if "/contents/VERSION" in u:
+                return _FakeResp(404)
+            if u.rstrip("/").endswith("/releases") or "/releases?" in u:
+                return _FakeResp(200, json_data=[])
             return _FakeResp(404)
 
         client = MagicMock()
@@ -136,6 +140,46 @@ class ChannelAwareUpdateCheckTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("آپدیت", info["label"])
         self.assertTrue(any("/dev/VERSION" in u for u in calls))
         self.assertFalse(any("/releases/latest" in u for u in calls))
+
+    async def test_dev_falls_back_to_contents_api_and_prerelease(self):
+        import base64
+
+        calls: list[str] = []
+
+        async def fake_get(url, **kwargs):
+            u = str(url)
+            calls.append(u)
+            if "raw.githubusercontent" in u:
+                raise RuntimeError("cdn blocked")
+            if "/contents/VERSION" in u:
+                body = base64.b64encode(b"9.9.8\n").decode()
+                return _FakeResp(200, json_data={"content": body})
+            if "/releases" in u and "/latest" not in u:
+                return _FakeResp(
+                    200,
+                    json_data=[
+                        {
+                            "tag_name": "v9.9.7",
+                            "prerelease": True,
+                            "target_commitish": "abc1234",
+                        }
+                    ],
+                )
+            return _FakeResp(404)
+
+        client = MagicMock()
+        client.get = AsyncMock(side_effect=fake_get)
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("app.services.updates.httpx.AsyncClient", return_value=client), patch(
+            "app.services.updates.local_version", return_value="0.2.0"
+        ):
+            info = await check_github_update(force=True, channel="dev")
+
+        self.assertTrue(info["checked"])
+        self.assertEqual(info["remote_version"], "9.9.8")
+        self.assertTrue(any("/contents/VERSION" in u for u in calls))
 
     async def test_dev_reports_no_update_when_already_latest(self):
         async def fake_get(url, **kwargs):
@@ -180,6 +224,32 @@ class ChannelAwareUpdateCheckTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(info["checked"])
         self.assertEqual(info["remote_version"], "3.2.2")
         self.assertEqual(info["channel"], "main")
+
+
+class MigrationFlashNoDuplicateTests(unittest.TestCase):
+    """Migration error must not also fill the version flash (channel switch)."""
+
+    def test_payload_keeps_migration_text_out_of_channel_check_message(self):
+        src = open("app/services/panel_update.py", encoding="utf-8").read()
+        # Blocked preflight only flips tone — message stays version-status copy.
+        self.assertIn("Keep update-status copy separate from migration_preflight", src)
+        self.assertNotIn(
+            'check_message = str(preflight.get("message") or preflight.get("label") or "")',
+            src,
+        )
+
+    def test_js_hides_version_flash_when_migration_blocked(self):
+        js = open("app/web/static/panel.js", encoding="utf-8").read()
+        self.assertIn("Migration error already lives in #upd-migration-flash", js)
+        self.assertIn("if (migrationBlocked)", js)
+
+    def test_ssr_hides_version_flash_when_migration_blocked(self):
+        html = open(
+            "app/web/templates/_settings_update.html", encoding="utf-8"
+        ).read()
+        self.assertIn("migration_blocked or show_ops", html)
+        self.assertIn('id="upd-version-flash"', html)
+        self.assertIn('id="upd-migration-flash"', html)
 
 
 if __name__ == "__main__":

@@ -109,12 +109,13 @@ from app.api.login_guard import (
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 
-from app.services.formatting import format_bytes, format_bytes_ratio, format_gb, format_number, format_expire_short, order_status_fa, ticket_status_fa
+from app.services.formatting import format_bytes, format_bytes_ratio, format_gb, format_money, format_number, format_expire_short, order_status_fa, ticket_status_fa
 
 templates.env.filters["bytes"] = format_bytes
 templates.env.filters["bytes_ratio"] = format_bytes_ratio
 templates.env.filters["gb"] = format_gb
 templates.env.filters["num"] = format_number
+templates.env.filters["money"] = format_money
 templates.env.filters["expire"] = format_expire_short
 templates.env.filters["order_status"] = order_status_fa
 templates.env.filters["ticket_status"] = ticket_status_fa
@@ -270,6 +271,8 @@ def render(request: Request, name: str, context: dict | None = None, status_code
         ctx["tickets_unread"] = int(getattr(request.state, "panel_tickets_unread", 0) or 0)
     if "inbox_alert" not in ctx:
         ctx["inbox_alert"] = bool(getattr(request.state, "panel_inbox_alert", False))
+    if "cancel_alert" not in ctx:
+        ctx["cancel_alert"] = bool(getattr(request.state, "panel_cancel_alert", False))
     # Keep env global fresh too — macros import without ``with context``.
     topics = _load_guide_topics()
     templates.env.globals["guide_topics"] = topics
@@ -592,7 +595,7 @@ def create_api_app(lifespan=None) -> FastAPI:
                 PG_ACCESS_DENIED_MSG,
                 access_by_web_username,
                 enforce_pg_admin_web_gate,
-                staff_has_stored_pg_password,
+                staff_has_pg_auth_secret,
             )
 
             web_u = (user.get("username") or "").strip().lower()
@@ -612,8 +615,8 @@ def create_api_app(lifespan=None) -> FastAPI:
             user["permissions"] = []
             user["pg_admin_username"] = row.pg_username
             user["pg_staff_id"] = int(row.id)
-            # Phase C5: advertise stored PG password so menus/reads match client selection
-            user["pg_credentials_ready"] = staff_has_stored_pg_password(row)
+            # Phase C5: advertise stored PG auth (API key or password)
+            user["pg_credentials_ready"] = staff_has_pg_auth_secret(row)
             if row.pg_role_id:
                 user["pg_role_id"] = int(row.pg_role_id)
             pg_client = None
@@ -690,6 +693,7 @@ def create_api_app(lifespan=None) -> FastAPI:
             if should_skip_unread_count(request.url.path, request.method):
                 request.state.panel_tickets_unread = 0
                 request.state.panel_inbox_alert = False
+                request.state.panel_cancel_alert = False
             else:
                 from app.services.panel_sidebar_cache import (
                     peek_sidebar_counts,
@@ -702,20 +706,36 @@ def create_api_app(lifespan=None) -> FastAPI:
                 if cached is not None:
                     request.state.panel_tickets_unread = cached[0]
                     request.state.panel_inbox_alert = cached[1]
+                    request.state.panel_cancel_alert = cached[2]
                 else:
                     unread = await sidebar_unread_count(session, user)
                     from app.services.panel_inbox import sidebar_inbox_has_alerts
 
                     alert = await sidebar_inbox_has_alerts(session, request, user)
-                    store_sidebar_counts(cache_key, unread, alert)
+                    cancel_alert = False
+                    try:
+                        from app.services.authz import authz_from_staff, can_shop
+                        from app.services.service_cancellations import has_pending_cancellations
+                        from app.services.shop_scope import ShopScopeError, resolve_shop_scope_id
+
+                        if can_shop(authz_from_staff(user), "orders"):
+                            scope = resolve_shop_scope_id(user)
+                            cancel_alert = await has_pending_cancellations(session, scope)
+                    except ShopScopeError:
+                        cancel_alert = False
+                    except Exception:
+                        cancel_alert = False
+                    store_sidebar_counts(cache_key, unread, alert, cancel_alert)
                     request.state.panel_tickets_unread = unread
                     request.state.panel_inbox_alert = alert
+                    request.state.panel_cancel_alert = cancel_alert
         except Exception:
             from app.services.db_safe import rollback_quiet
 
             await rollback_quiet(session)
             request.state.panel_tickets_unread = 0
             request.state.panel_inbox_alert = False
+            request.state.panel_cancel_alert = False
         from app.services.db_safe import recover_session
 
         await recover_session(session)
@@ -1423,6 +1443,9 @@ def create_api_app(lifespan=None) -> FastAPI:
     from app.api.miniapp_pages import register_miniapp_pages
 
     register_miniapp_pages(app, render=render, get_db=get_db)
+    from app.api.customer_features import register_customer_features
+
+    register_customer_features(app, render=render, require_staff=require_staff, get_db=get_db)
 
     @app.get("/settings/ssl/progress")
     async def ssl_progress(staff: dict = Depends(require_admin)):
@@ -1541,6 +1564,7 @@ def create_api_app(lifespan=None) -> FastAPI:
             values.get("BOT_TOKEN")
         )
         has_pg_password = bool((values.get("PG_PASSWORD") or "").strip())
+        has_pg_api_key = bool((values.get("PG_API_KEY") or "").strip())
         # Never echo live secrets back into the HTML source — a re-run of the
         # wizard (e.g. to change one unrelated field) must not require
         # re-typing the bot token / PG password, but it also must not leak
@@ -1549,6 +1573,7 @@ def create_api_app(lifespan=None) -> FastAPI:
         display_values = dict(values)
         display_values["BOT_TOKEN"] = ""
         display_values["PG_PASSWORD"] = ""
+        display_values["PG_API_KEY"] = ""
         if pg_audit is None and (show_done or step >= 4):
             try:
                 pg_audit = await setup_pg_access_audit()
@@ -1561,6 +1586,7 @@ def create_api_app(lifespan=None) -> FastAPI:
                 "values": display_values,
                 "has_bot_token": has_bot_token,
                 "has_pg_password": has_pg_password,
+                "has_pg_api_key": has_pg_api_key,
                 "initial_step": step,
                 "show_done": show_done,
                 "flash_err": err or request.query_params.get("err"),
@@ -1664,6 +1690,8 @@ def create_api_app(lifespan=None) -> FastAPI:
         pg_subscription_path: str = Form("/sub"),
         pg_username: str = Form(""),
         pg_password: str = Form(""),
+        pg_api_key: str = Form(""),
+        clear_pg_api_key: str = Form(""),
         web_port: str = Form("9000"),
         public_base_url: str = Form(""),
         currency: str = Form("تومان"),
@@ -1691,14 +1719,36 @@ def create_api_app(lifespan=None) -> FastAPI:
             return await fail(str(exc))
         if not (pg_username or "").strip():
             return await fail("نام کاربری پاسارگارد الزامی است.")
+        current_vals = current_setup_values()
+        clear_key = str(clear_pg_api_key or "").strip().lower() in {
+            "1",
+            "on",
+            "true",
+            "yes",
+        }
+        raw_key = (pg_api_key or "").replace("\r", "").strip()
+        if clear_key:
+            resolved_api_key = ""
+        elif raw_key:
+            if len(raw_key) < 16:
+                return await fail(
+                    "کلید API پاسارگارد کوتاه است — مقدار کامل را از پنل پاسارگارد کپی کنید."
+                )
+            resolved_api_key = raw_key
+        else:
+            # Empty = keep previously saved key (never echoed in HTML).
+            resolved_api_key = (current_vals.get("PG_API_KEY") or "").strip()
         if not (pg_password or "").strip():
             # Wizard never re-displays the saved password (see _setup_page) —
             # an empty submit here means "keep the existing one".
-            existing_pw = (current_setup_values().get("PG_PASSWORD") or "").strip()
+            existing_pw = (current_vals.get("PG_PASSWORD") or "").strip()
             if existing_pw:
                 pg_password = existing_pw
-            else:
-                return await fail("رمز پاسارگارد الزامی است.")
+            elif not resolved_api_key:
+                return await fail(
+                    "رمز یا کلید API پاسارگارد الزامی است "
+                    "(حداقل یکی برای ادمین متصل)."
+                )
         port = (web_port or "9000").strip()
         try:
             port_n = int(port)
@@ -1714,7 +1764,8 @@ def create_api_app(lifespan=None) -> FastAPI:
 
         caps = await resolve_platform_pg_capabilities(
             username=(pg_username or "").strip(),
-            password=(pg_password or "").strip(),
+            password=(pg_password or "").strip() or None,
+            api_key=resolved_api_key or None,
             base_url=base,
             use_cache=False,
         )
@@ -1722,24 +1773,25 @@ def create_api_app(lifespan=None) -> FastAPI:
             detail = caps.get("error") or "نامعتبر"
             return await fail(
                 f"ورود به پاسارگارد ناموفق بود: {detail}. "
-                "علت محتمل: آدرس/یوزر/رمز اشتباه. "
-                "راه حل: همان اعتبارنامه ورود پنل پاسارگارد را وارد کنید."
+                "علت محتمل: آدرس، نام کاربری، رمز یا کلید API اشتباه. "
+                "راه حل: اعتبارنامه همان ادمین متصل در پاسارگارد را وارد کنید "
+                "(لزوماً owner پاسارگارد نیست)."
             )
         ensure_web_secret()
         pub = (public_base_url or "").strip().rstrip("/")
         if pub.startswith("https://"):
             pub = "http://" + pub[len("https://") :]
-        update_env_keys(
-            {
-                "PG_BASE_URL": base,
-                "PG_SUBSCRIPTION_PATH": sub_path,
-                "PG_USERNAME": (pg_username or "").strip(),
-                "PG_PASSWORD": (pg_password or "").strip(),
-                "WEB_PORT": str(port_n),
-                "PUBLIC_BASE_URL": pub,
-                "CURRENCY": (currency or "").strip() or "تومان",
-            }
-        )
+        env_update: dict[str, str | int | None] = {
+            "PG_BASE_URL": base,
+            "PG_SUBSCRIPTION_PATH": sub_path,
+            "PG_USERNAME": (pg_username or "").strip(),
+            "PG_PASSWORD": (pg_password or "").strip(),
+            "PG_API_KEY": resolved_api_key,
+            "WEB_PORT": str(port_n),
+            "PUBLIC_BASE_URL": pub,
+            "CURRENCY": (currency or "").strip() or "تومان",
+        }
+        update_env_keys(env_update)
         clear_platform_pg_capability_cache()
         if _setup_wants_json(request):
             return JSONResponse({"ok": True, "next": "/setup?step=4"})
@@ -1880,7 +1932,7 @@ def create_api_app(lifespan=None) -> FastAPI:
                 access_by_web_username,
                 enforce_pg_admin_web_gate,
                 resolve_pg_role_id_for_admin,
-                staff_has_stored_pg_password,
+                staff_has_pg_auth_secret,
             )
 
             result = await session.execute(
@@ -2029,7 +2081,7 @@ def create_api_app(lifespan=None) -> FastAPI:
                     display = staff_row.web_username
                     permissions = []
                     pg_admin_username = staff_row.pg_username
-                    pg_credentials_ready = staff_has_stored_pg_password(staff_row)
+                    pg_credentials_ready = staff_has_pg_auth_secret(staff_row)
                     pg_staff_id = int(staff_row.id)
                     # Prefer stored role; refresh live when reachable
                     pg_role_id = (
@@ -2554,6 +2606,7 @@ def create_api_app(lifespan=None) -> FastAPI:
                 pg_roles = []
 
         gift_codes: list = []
+        gift_code_details: dict = {}
         try:
             from app.db.models import ChargeCode
 
@@ -2564,6 +2617,9 @@ def create_api_app(lifespan=None) -> FastAPI:
                 else:
                     q = q.where(ChargeCode.reseller_id == int(rid))
                 gift_codes = list((await session.execute(q)).scalars().all())
+                from app.services.gift_codes import describe_code
+
+                gift_code_details = {c.id: describe_code(c) for c in gift_codes}
         except Exception:
             import logging
 
@@ -2623,6 +2679,7 @@ def create_api_app(lifespan=None) -> FastAPI:
                 "feature_perms": feature_perms,
                 "pg_roles": pg_roles,
                 "gift_codes": gift_codes,
+                "gift_code_details": gift_code_details,
                 "plan_categories": plan_categories,
                 "plan_category_map": plan_category_map,
                 "reseller_plan_category_map": reseller_plan_category_map,
@@ -3628,6 +3685,13 @@ def create_api_app(lifespan=None) -> FastAPI:
             .limit(fetch_limit)
         )
         users = list(result.scalars().all())
+        from app.services.wallet import wallet_balances_for_scope
+
+        # Scoped purse only — never surface another shop's ShopWallet / platform
+        # balance to tenant staff (and Owner sees platform BotUser.wallet_balance).
+        wallet_by_uid = await wallet_balances_for_scope(
+            session, [int(u.id) for u in users], shop_id=scope
+        )
         if search_q:
             users = filter_by_search(
                 users,
@@ -3638,7 +3702,7 @@ def create_api_app(lifespan=None) -> FastAPI:
                     u.username,
                     u.full_name,
                     u.role,
-                    u.wallet_balance,
+                    wallet_by_uid.get(int(u.id), 0),
                     "مسدود" if u.is_blocked else "فعال",
                 ),
             )
@@ -3647,6 +3711,8 @@ def create_api_app(lifespan=None) -> FastAPI:
             users,
             filter_key=filter_raw,
             focus_uid=focus_uid,
+            shop_id=scope,
+            wallet_by_uid=wallet_by_uid,
         )
         # Deep-link uid outside this shop → ignore (no cross-tenant leak).
         if focus_uid and not any(int(r.user.id) == int(focus_uid) for r in rows):
@@ -4190,7 +4256,6 @@ def create_api_app(lifespan=None) -> FastAPI:
                 {
                     "key": key,
                     "label": meta["label"],
-                    "btn": values.get(f"btn_{key}", meta["label"]),
                     "required": meta["required"],
                 }
             )
@@ -4204,7 +4269,6 @@ def create_api_app(lifespan=None) -> FastAPI:
                     {
                         "key": key,
                         "label": meta["label"],
-                        "btn": values.get(f"btn_{key}", meta["label"]),
                         "required": False,
                     }
                 )
@@ -4223,6 +4287,8 @@ def create_api_app(lifespan=None) -> FastAPI:
         payload = {"menu_order": ",".join(order)}
         if layout in {"classic", "compact"}:
             payload["menu_layout"] = layout
+        # nav_mode classic removed — always inline (Option B)
+        payload["nav_mode"] = "inline"
         payload.update(sync_show_flags_for_order(order))
         if reseller_id is not None:
             payload["show_reseller_apply"] = "0"
@@ -4260,10 +4326,23 @@ def create_api_app(lifespan=None) -> FastAPI:
         values = await get_all_settings(session)
         tab_groups = TAB_SETTING_GROUPS.get(tab, [])
         groups = {name: SETTING_GROUPS[name] for name in tab_groups if name in SETTING_GROUPS}
-        if tab == "terms":
+        if tab in {"terms", "limits"}:
             from app.services.rich_text import prepare_settings_values_for_web
 
             values = prepare_settings_values_for_web(values)
+
+        if tab == "guides":
+            from app.services.connection_guides import (
+                default_connection_guides,
+                parse_connection_guides,
+                serialize_connection_guides,
+            )
+
+            guides = parse_connection_guides(values.get("connection_guides"))
+            if not guides:
+                values["connection_guides"] = serialize_connection_guides(
+                    default_connection_guides()
+                )
 
         if tab == "colors":
             from app.services.payment_destinations import enrich_payment_settings
@@ -4295,7 +4374,7 @@ def create_api_app(lifespan=None) -> FastAPI:
 
         if tab == "menu":
             ctx.update(_menu_tab_context(values))
-        elif tab == "terms":
+        elif tab in {"terms", "limits", "guides"}:
             from app.services.button_styles import STYLE_OPTIONS
 
             ctx["style_options"] = STYLE_OPTIONS
@@ -4380,14 +4459,10 @@ def create_api_app(lifespan=None) -> FastAPI:
             ctx["backup_schedule_groups"] = {
                 name: SETTING_GROUPS[name] for name in names if name in SETTING_GROUPS
             }
-        elif tab == "pasarguard":
+        elif tab == "general":
             from app.services.setup_wizard import current_setup_values
 
-            current = current_setup_values()
-            ctx["env_values"] = {key: current.get(key, "") for key in (
-                "PG_BASE_URL", "PG_SUBSCRIPTION_PATH", "PG_USERNAME"
-            )}
-            ctx["pg_has_password"] = bool(current.get("PG_PASSWORD"))
+            ctx["env_values"] = current_setup_values()
         elif tab == "bot":
             from app.services.setup_wizard import current_setup_values
 
@@ -4521,23 +4596,52 @@ def create_api_app(lifespan=None) -> FastAPI:
                 return pg_result(False, str(exc), code=400)
             username = str(form.get("PG_USERNAME") or "").strip()
             password = str(form.get("PG_PASSWORD") or "").strip() or current.get("PG_PASSWORD", "")
-            if not username or not password:
-                return pg_result(False, "نام کاربری و رمز پاسارگارد الزامی است؛ رمز خالی، رمز فعلی را حفظ می‌کند", code=400)
+            clear_key = str(form.get("clear_pg_api_key") or "").strip().lower() in {
+                "1", "on", "true", "yes",
+            }
+            raw_key = str(form.get("PG_API_KEY") or "").replace("\r", "").strip()
+            if clear_key:
+                api_key = ""
+            elif raw_key:
+                if len(raw_key) < 16:
+                    return pg_result(
+                        False,
+                        "کلید API پاسارگارد کوتاه است — مقدار کامل را از پنل پاسارگارد کپی کنید",
+                        code=400,
+                    )
+                api_key = raw_key
+            else:
+                api_key = (current.get("PG_API_KEY") or "").strip()
+            if not username or not (password or api_key):
+                return pg_result(
+                    False,
+                    "نام کاربری و (رمز یا کلید API) الزامی است؛ فیلد خالی مقدار فعلی را حفظ می‌کند",
+                    code=400,
+                )
             if action == "test":
                 import asyncio
 
                 try:
                     caps = await asyncio.wait_for(resolve_platform_pg_capabilities(
-                        username=username, password=password, base_url=base, use_cache=False,
+                        username=username,
+                        password=password or None,
+                        api_key=api_key or None,
+                        base_url=base,
+                        use_cache=False,
                     ), timeout=8.0)
                 except Exception:
                     return pg_result(False, "پنل در زمان مقرر پاسخ نداد؛ آدرس و اتصال پنل را بررسی کنید", code=502)
                 if not caps.get("ok"):
-                    return pg_result(False, "اتصال پاسارگارد ناموفق بود؛ آدرس، نام کاربری و رمز پنل را بررسی کنید", code=400)
+                    return pg_result(
+                        False,
+                        "اتصال پاسارگارد ناموفق بود؛ آدرس، نام کاربری، رمز یا کلید API را بررسی کنید",
+                        code=400,
+                    )
                 return pg_result(True, f"اتصال پاسارگارد موفق است؛ مسیر سابسکریپشن: {sub_path}/")
             update_env_keys({
                 "PG_BASE_URL": base, "PG_SUBSCRIPTION_PATH": sub_path,
                 "PG_USERNAME": username, "PG_PASSWORD": password,
+                "PG_API_KEY": api_key,
             })
             get_settings.cache_clear()
             reset_pg()
@@ -4661,20 +4765,18 @@ def create_api_app(lifespan=None) -> FastAPI:
                     return _bot_err(str(exc))
             pg_user = str(form.get("PG_USERNAME") or "").strip()
             pg_pass = str(form.get("PG_PASSWORD") or "").strip()
-            web_port = str(form.get("WEB_PORT") or "9000").strip()
-            public_base = str(form.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
-            try:
-                from app.services.ssl_certs import https_is_active
-
-                if public_base.startswith("https://") and not https_is_active():
-                    public_base = "http://" + public_base[len("https://") :]
-            except Exception:
-                pass
-            currency = str(form.get("CURRENCY") or "").strip() or "تومان"
+            clear_pg_key = str(form.get("clear_pg_api_key") or "").strip().lower() in {
+                "1", "on", "true", "yes",
+            }
+            pg_api_key_raw = str(form.get("PG_API_KEY") or "").replace("\r", "").strip()
             update_mode_raw = str(form.get("BOT_UPDATE_MODE") or "").strip().lower()
             webhook_url_raw = str(form.get("WEBHOOK_URL") or "").strip()
             webhook_path_raw = str(form.get("WEBHOOK_PATH") or "").strip()
             current = current_setup_values()
+            # Web/public fields live on panel «عمومی» — keep current values here.
+            web_port = str(current.get("WEB_PORT") or "9000").strip()
+            public_base = str(current.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+            currency = str(current.get("CURRENCY") or "تومان").strip() or "تومان"
             try:
                 pg_sub_path = normalize_pg_subscription_path(
                     str(form.get("PG_SUBSCRIPTION_PATH") or current.get("PG_SUBSCRIPTION_PATH") or "/sub")
@@ -4685,8 +4787,23 @@ def create_api_app(lifespan=None) -> FastAPI:
                 token = (current.get("BOT_TOKEN") or "").strip()
             if not pg_pass:
                 pg_pass = (current.get("PG_PASSWORD") or "").strip()
-            if not token or not uname or not ids_raw or not pg_base or not pg_user or not pg_pass:
-                return _bot_err("همه فیلدهای الزامی را پر کنید")
+            if clear_pg_key:
+                pg_api_key = ""
+            elif pg_api_key_raw:
+                if len(pg_api_key_raw) < 16:
+                    return _bot_err(
+                        "کلید API پاسارگارد کوتاه است — مقدار کامل را از پنل پاسارگارد کپی کنید"
+                    )
+                pg_api_key = pg_api_key_raw
+            else:
+                pg_api_key = (current.get("PG_API_KEY") or "").strip()
+            if not token or not uname or not ids_raw or not pg_base or not pg_user or not (
+                pg_pass or pg_api_key
+            ):
+                return _bot_err(
+                    "همه فیلدهای الزامی را پر کنید "
+                    "(برای پاسارگارد: نام کاربری + رمز یا کلید API)"
+                )
             try:
                 ids = parse_admin_ids(ids_raw)
             except ValueError:
@@ -4718,6 +4835,7 @@ def create_api_app(lifespan=None) -> FastAPI:
                 "PG_SUBSCRIPTION_PATH": pg_sub_path,
                 "PG_USERNAME": pg_user,
                 "PG_PASSWORD": pg_pass,
+                "PG_API_KEY": pg_api_key,
                 "WEB_PORT": str(port_n),
                 "PUBLIC_BASE_URL": public_base,
                 "CURRENCY": currency,
@@ -4738,6 +4856,7 @@ def create_api_app(lifespan=None) -> FastAPI:
                 "PG_SUBSCRIPTION_PATH": normalize_pg_subscription_path(current.get("PG_SUBSCRIPTION_PATH")),
                 "PG_USERNAME": str(current.get("PG_USERNAME") or "").strip(),
                 "PG_PASSWORD": str(current.get("PG_PASSWORD") or "").strip(),
+                "PG_API_KEY": str(current.get("PG_API_KEY") or "").strip(),
                 "WEB_PORT": str(current.get("WEB_PORT") or "9000").strip(),
                 "PUBLIC_BASE_URL": str(current.get("PUBLIC_BASE_URL") or "").strip().rstrip("/"),
                 "CURRENCY": str(current.get("CURRENCY") or "تومان").strip() or "تومان",
@@ -4813,6 +4932,55 @@ def create_api_app(lifespan=None) -> FastAPI:
                 status_code=303,
             )
 
+        if tab == "general":
+            from app.services.service_control import schedule_panel_restart
+            from app.services.setup_wizard import current_setup_values
+
+            current = current_setup_values()
+            web_port = str(form.get("WEB_PORT") or "9000").strip()
+            public_base = str(form.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+            currency = str(form.get("CURRENCY") or "").strip() or "تومان"
+            try:
+                from app.services.ssl_certs import https_is_active
+
+                if public_base.startswith("https://") and not https_is_active():
+                    public_base = "http://" + public_base[len("https://") :]
+            except Exception:
+                pass
+            try:
+                port_n = int(web_port)
+                if port_n < 1 or port_n > 65535:
+                    raise ValueError
+            except ValueError:
+                return RedirectResponse(
+                    "/settings?tab=general&err=" + quote("پورت نامعتبر است"),
+                    status_code=303,
+                )
+            payload = {
+                "WEB_PORT": str(port_n),
+                "PUBLIC_BASE_URL": public_base,
+                "CURRENCY": currency,
+            }
+            current_norm = {
+                "WEB_PORT": str(current.get("WEB_PORT") or "9000").strip(),
+                "PUBLIC_BASE_URL": str(current.get("PUBLIC_BASE_URL") or "").strip().rstrip("/"),
+                "CURRENCY": str(current.get("CURRENCY") or "تومان").strip() or "تومان",
+            }
+            needs_restart = any(
+                str(payload.get(k) or "").strip() != str(current_norm.get(k) or "").strip()
+                for k in payload
+            )
+            if not needs_restart:
+                return RedirectResponse("/settings?tab=general&saved=1", status_code=303)
+            update_env_keys(payload)
+            ensure_web_secret()
+            get_settings.cache_clear()
+            schedule_panel_restart(delay_sec=2.5, reason="panel general settings saved")
+            return RedirectResponse(
+                "/settings?tab=general&ok=" + quote("تنظیمات ذخیره شد — در حال ری‌استارت"),
+                status_code=303,
+            )
+
         if tab == "pwa":
             from app.services.pwa import save_pwa_from_form
 
@@ -4877,6 +5045,20 @@ def create_api_app(lifespan=None) -> FastAPI:
                     from app.services.users import normalize_force_join_channel_value
 
                     val = normalize_force_join_channel_value(val)
+                if key == "connection_guides":
+                    import json as _json
+
+                    from app.services.connection_guides import serialize_connection_guides
+
+                    try:
+                        parsed = _json.loads(val) if (val or "").strip() else []
+                    except _json.JSONDecodeError:
+                        parsed = []
+                    val = serialize_connection_guides(parsed if isinstance(parsed, list) else [])
+                if key == "receipt_dup_policy":
+                    from app.services.receipt_fingerprints import normalize_dup_policy
+
+                    val = normalize_dup_policy(val)
                 payload[key] = val
         if tab == "daily_report":
             from app.services.daily_report import (

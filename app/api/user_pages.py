@@ -11,11 +11,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import BotUser, Plan
+from app.services.authz import authz_from_staff, can_shop
+from app.services.demo_users import DEMO_USERS_PERMISSION, set_demo_user
 from app.services.shop_scope import ShopScopeError, assert_bot_user_in_scope
 
 
 def _q(msg: str) -> str:
     return quote(str(msg), safe="")
+
+
+def _op_err(exc: BaseException, *, prefix: str) -> str:
+    """Staff-facing error with PasarGuard detail when available."""
+    from app.services.redact import operator_error
+
+    return operator_error(exc, prefix=prefix)
 
 
 def _redirect_user(user_id: int, *, ok: str | None = None, err: str | None = None):
@@ -85,6 +94,23 @@ async def _require_scoped_user(
 
 def register_user_pages(app, *, render, require_admin, get_db, require_perm=None) -> None:
     require_ops = require_perm("dashboard") if require_perm else require_admin
+
+    @app.post("/users/{user_id}/demo")
+    async def user_demo(
+        user_id: int,
+        request: Request,
+        staff: dict = Depends(require_ops),
+        session: AsyncSession = Depends(get_db),
+    ) -> RedirectResponse:
+        form = await request.form()
+        state = form.get("is_demo")
+        if state not in {"0", "1"}:
+            return _redirect_user(user_id, err="وضعیت کاربر دمو نامعتبر است")
+        try:
+            await set_demo_user(session, staff, user_id, is_demo=state == "1")
+        except (PermissionError, ValueError, ShopScopeError) as exc:
+            return _redirect_user(user_id, err=str(exc))
+        return _redirect_user(user_id, ok="وضعیت کاربر دمو ذخیره شد")
 
     @app.post("/users/create")
     async def user_create(
@@ -174,9 +200,9 @@ def register_user_pages(app, *, render, require_admin, get_db, require_perm=None
                 actor=actor_label_from_staff(staff),
             )
         except ValueError as e:
-            return _redirect_user(user_id, err=str(e))
+            return _redirect_user(user_id, err=_op_err(e, prefix="اختصاص پلن ناموفق"))
         except Exception as e:
-            return _redirect_user(user_id, err=f"اختصاص پلن ناموفق: {e}")
+            return _redirect_user(user_id, err=_op_err(e, prefix="اختصاص پلن ناموفق"))
         label = plan.name or f"#{svc.id}"
         return _redirect_user(user_id, ok=f"پلن «{label}» اختصاص داده شد (سرویس #{svc.id})")
 
@@ -201,6 +227,18 @@ def register_user_pages(app, *, render, require_admin, get_db, require_perm=None
             return loaded
         user = loaded
 
+        from app.services.shop_scope import resolve_shop_scope_id
+        from app.services.wallet import get_wallet_balance
+
+        try:
+            shop_scope = resolve_shop_scope_id(staff)
+        except ShopScopeError:
+            shop_scope = None
+        # Display the purse for this staff's shop only (no cross-tenant leak).
+        display_wallet = await get_wallet_balance(
+            session, user, shop_id=shop_scope
+        )
+
         snaps = await list_service_snapshots(session, int(user_id))
         wallet_txs = await list_wallet_txs(session, int(user_id), limit=20)
         plans = await list_catalog_plans(session, staff, include_trial=False)
@@ -213,6 +251,7 @@ def register_user_pages(app, *, render, require_admin, get_db, require_perm=None
         ctx = {
             "staff": staff,
             "user": user,
+            "display_wallet": display_wallet,
             "services": snaps,
             "wallet_txs": wallet_txs,
             "plans": plans,
@@ -221,6 +260,7 @@ def register_user_pages(app, *, render, require_admin, get_db, require_perm=None
             "flash_err": request.query_params.get("err"),
             # CRM identity ops stay Owner-only (not PG ACL).
             "can_manage_users": is_explicit_owner_staff(staff),
+            "can_manage_demo_users": can_shop(authz_from_staff(staff), DEMO_USERS_PERMISSION),
             # Plan assign / service mutate follow PasarGuard users.* ACL.
             "can_provision_users": can_pg_create,
             "can_pg_create": can_pg_create,
@@ -240,7 +280,11 @@ def register_user_pages(app, *, render, require_admin, get_db, require_perm=None
         staff: dict = Depends(require_admin),
         session: AsyncSession = Depends(get_db),
     ):
-        from app.services.bot_user_admin import admin_credit_user_wallet
+        from app.services.bot_user_admin import (
+            admin_adjust_user_wallet,
+            parse_admin_wallet_amount,
+            parse_admin_wallet_mode,
+        )
         from app.services.notifications import actor_label_from_staff
 
         loaded = await _require_scoped_user(session, staff, user_id)
@@ -248,25 +292,30 @@ def register_user_pages(app, *, render, require_admin, get_db, require_perm=None
             return loaded
         user = loaded
         form = await request.form()
-        from app.services.numbers import parse_int
 
         raw = str(form.get("amount") or "").strip()
         note = str(form.get("note") or "").strip()
         try:
-            amount = parse_int(raw)
-        except (TypeError, ValueError):
-            return _redirect_user(user_id, err="مبلغ نامعتبر است")
+            amount = parse_admin_wallet_amount(raw)
+            mode = parse_admin_wallet_mode(str(form.get("mode") or ""))
+        except (TypeError, ValueError) as e:
+            return _redirect_user(user_id, err=str(e) or "مبلغ نامعتبر است")
         try:
-            await admin_credit_user_wallet(
+            await admin_adjust_user_wallet(
                 session,
                 user,
                 amount,
+                mode=mode,
                 actor=actor_label_from_staff(staff),
                 note=note or None,
             )
         except ValueError as e:
             return _redirect_user(user_id, err=str(e))
-        return _redirect_user(user_id, ok=f"کیف پول {amount:,} تومان شارژ شد")
+        if mode == "credit":
+            ok = f"کیف پول {amount:,} تومان شارژ شد"
+        else:
+            ok = f"از کیف پول {amount:,} تومان کسر شد"
+        return _redirect_user(user_id, ok=ok)
 
     @app.post("/users/{user_id}/message")
     async def user_staff_message(
@@ -323,7 +372,7 @@ def register_user_pages(app, *, render, require_admin, get_db, require_perm=None
         except ValueError as e:
             return _redirect_list_form(form, err=str(e), uid=user_id)
         except Exception as e:
-            return _redirect_list_form(form, err=f"تمدید ناموفق: {e}", uid=user_id)
+            return _redirect_list_form(form, err=_op_err(e, prefix="تمدید ناموفق"), uid=user_id)
         return _redirect_list_form(
             form, ok=f"سرویس {label} تمدید شد", uid=user_id
         )
@@ -436,7 +485,7 @@ def register_user_pages(app, *, render, require_admin, get_db, require_perm=None
         except ValueError as e:
             return _redirect_user(user_id, err=str(e))
         except Exception as e:
-            return _redirect_user(user_id, err=f"تمدید ناموفق: {e}")
+            return _redirect_user(user_id, err=_op_err(e, prefix="تمدید ناموفق"))
         return _redirect_user(user_id, ok=f"سرویس #{service_id} تمدید شد")
 
     @app.post("/users/{user_id}/services/{service_id}/extend")
@@ -480,7 +529,7 @@ def register_user_pages(app, *, render, require_admin, get_db, require_perm=None
         except ValueError as e:
             return _redirect_user(user_id, err=str(e))
         except Exception as e:
-            return _redirect_user(user_id, err=f"تغییر مانده ناموفق: {e}")
+            return _redirect_user(user_id, err=_op_err(e, prefix="تغییر مانده ناموفق"))
         return _redirect_user(user_id, ok=f"مانده سرویس #{service_id} به‌روز شد")
 
     @app.post("/users/{user_id}/services/{service_id}/delete")
@@ -512,7 +561,7 @@ def register_user_pages(app, *, render, require_admin, get_db, require_perm=None
         except ValueError as e:
             return _redirect_user(user_id, err=str(e))
         except Exception as e:
-            return _redirect_user(user_id, err=f"حذف سرویس ناموفق: {e}")
+            return _redirect_user(user_id, err=_op_err(e, prefix="حذف سرویس ناموفق"))
         note = " (پاسارگارد حذف شد)" if info.get("pg_deleted") else (
             " (پاسارگارد غیرفعال شد)" if info.get("pg_disabled") else ""
         )

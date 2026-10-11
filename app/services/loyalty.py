@@ -29,6 +29,7 @@ from app.db.models import (
     RewardRedemption,
     UserService,
 )
+from app.services.demo_users import non_demo_customer
 from app.services.formatting import bot_user_panel_label
 
 logger = logging.getLogger(__name__)
@@ -1419,6 +1420,9 @@ async def release_loyalty_discount_for_order(session: AsyncSession, order: Order
 
 async def consume_loyalty_discount_for_order(session: AsyncSession, order: Order) -> None:
     """Mark reserved loyalty discount consumed after successful payment/delivery."""
+    from app.services.gift_codes import consume_gift_discount
+
+    await consume_gift_discount(session, order)
     code = (order.discount_code or "").strip().upper()
     if not code.startswith("LOY"):
         return
@@ -1465,6 +1469,9 @@ async def apply_service_reward(
     """Apply traffic/time to Pasarguard user (additive). Shared by redeem + lucky wheel."""
     import time
 
+    from app.services.service_cancellations import lock_service_mutation
+    await lock_service_mutation(session, service.id)
+
     from app.services.pasarguard import get_pg, get_pg_for_reseller
     from app.services.users import current_shop_reseller_id
 
@@ -1508,9 +1515,9 @@ async def apply_service_reward(
 async def overview_metrics(
     session: AsyncSession, *, reseller_id: int | None = None
 ) -> dict[str, Any]:
-    user_filter = []
+    user_filter = [BotUser.is_demo.is_(False), non_demo_customer(BotUser.referred_by_id)]
     if reseller_id is not None:
-        user_filter = [BotUser.reseller_id == int(reseller_id)]
+        user_filter.append(BotUser.reseller_id == int(reseller_id))
 
     total_refs = int(
         (
@@ -1535,9 +1542,14 @@ async def overview_metrics(
                 BotUser.reseller_id == int(reseller_id),
             )
         )
+    qual_q = qual_q.where(
+        non_demo_customer(ReferralEvent.referrer_id), non_demo_customer(ReferralEvent.referred_id),
+    )
     qualified = int((await session.execute(qual_q)).scalar_one() or 0)
 
-    pts_base = select(func.coalesce(func.sum(PointsTransaction.amount), 0))
+    pts_base = select(func.coalesce(func.sum(PointsTransaction.amount), 0)).where(
+        non_demo_customer(PointsTransaction.user_id),
+    )
     if reseller_id is not None:
         pts_join = pts_base.select_from(PointsTransaction).join(
             BotUser, BotUser.id == PointsTransaction.user_id
@@ -1551,6 +1563,7 @@ async def overview_metrics(
                 BotUser.reseller_id == int(reseller_id),
                 PointsTransaction.amount < 0,
                 PointsTransaction.tx_type == "redeem",
+                non_demo_customer(PointsTransaction.user_id),
             )
         )
         redeemed = int((await session.execute(redeemed_q)).scalar_one() or 0)
@@ -1569,6 +1582,7 @@ async def overview_metrics(
                     select(func.coalesce(func.sum(PointsTransaction.amount), 0)).where(
                         PointsTransaction.amount < 0,
                         PointsTransaction.tx_type == "redeem",
+                        non_demo_customer(PointsTransaction.user_id),
                     )
                 )
             ).scalar_one()
@@ -1590,6 +1604,7 @@ async def overview_metrics(
                 BotUser.reseller_id == int(reseller_id),
             )
         )
+    red_q = red_q.where(non_demo_customer(RewardRedemption.user_id))
     wallet_credits = int((await session.execute(red_q)).scalar_one() or 0)
 
     rw_q = select(func.count()).select_from(LoyaltyReward).where(

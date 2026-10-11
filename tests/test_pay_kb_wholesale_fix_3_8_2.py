@@ -78,13 +78,15 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("clear_checkout_nav", src)
         self.assertIn("buyer_main_reply_keyboard", src)
 
-    def test_card_awaits_receipt_with_cancel_reply(self):
+    def test_card_awaits_receipt_with_inline_cancel(self):
         from app.bot.handlers import shop as shop_h
 
         src = inspect.getsource(shop_h.pay_card_cb)
         self.assertIn("_await_order_receipt", src)
         await_src = inspect.getsource(shop_h._await_order_receipt)
-        self.assertIn("cancel_reply", await_src)
+        self.assertIn("with_cancel_row", await_src)
+        self.assertIn("pay_rcpt", await_src)
+        self.assertNotIn("cancel_reply", await_src)
 
     def test_apply_discount_imported(self):
         from app.bot.handlers import shop as shop_h
@@ -178,7 +180,10 @@ class BuyerMainKeyboardTests(unittest.IsolatedAsyncioTestCase):
             "app.bot.menu_nav.build_main_reply_keyboard",
             new=AsyncMock(return_value=("KB", {"x": 1}, "user")),
         ) as build:
-            markup, ui = await buyer_main_reply_keyboard(session, user, order=order)
+            markup, ui = await buyer_main_reply_keyboard(session, user, order=order,
+                is_reseller_bot=False,
+                reseller_owner_id=None,
+            )
         self.assertEqual(markup, "KB")
         self.assertEqual(ui, {"x": 1})
         kwargs = build.await_args.kwargs

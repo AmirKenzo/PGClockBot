@@ -664,6 +664,13 @@ DEFAULT_SETTINGS = {
     "terms_buy_reseller_btn": "موافقم",
     "terms_buy_reseller_reaccept": "1",
     "trial_enabled": "0",
+    "trial_require_contact": "0",
+    "purchase_require_contact": "0",
+    "trial_require_iran_phone": "0",
+    "receipt_dup_policy": "warn",
+    "connection_guides": "[]",
+    "btn_guides": "📘 آموزش اتصال",
+    "btn_guide_open_link": "🔗 باز کردن لینک اشتراک",
     "referral_bonus": "0",
     "referral_required": "0",
     "referral_required_text": (
@@ -723,6 +730,7 @@ DEFAULT_SETTINGS = {
     "notify_new_order": "0",
     "notify_wallet_topup": "1",
     "notify_new_ticket": "1",
+    "notify_service_cancellation": "1",
     "notify_auto_approve": "1",
     "notify_account_edits": "1",
     # User low-remaining alerts (volume / time)
@@ -760,15 +768,26 @@ DEFAULT_SETTINGS = {
     "btn_reseller_creds": "🔐 اطلاعات ورود پنل و ربات",
     "btn_admin": "🛠 پنل ادمین",
     "btn_menu_home": "🏠 منوی اصلی",
+    "btn_adm_hub_ops": "🗓 عملیات روزانه",
+    "btn_adm_hub_people": "👤 افراد",
+    "btn_adm_hub_product": "📦 محصول و PG",
+    "btn_adm_hub_system": "🛠 سیستم",
+    "btn_adm_dash": "📊 داشبورد",
+    "btn_adm_reports": "📈 گزارشات",
     "btn_adm_orders": "🛒 سفارش‌ها",
     "btn_adm_payments": "🧾 رسیدها",
     "btn_adm_tickets": "🎫 تیکت‌ها",
     "btn_adm_plans": "📦 پلن‌ها",
     "btn_adm_pg": "🖥 پاسارگارد",
     "btn_adm_users": "👥 کاربران",
+    "btn_adm_resellers": "🤝 نمایندگان",
+    "btn_adm_loyalty": "⭐ باشگاه مشتریان",
     "btn_adm_settings": "⚙️ تنظیمات",
     "btn_adm_broadcast": "📢 پیام گروهی",
+    "btn_adm_backup": "💾 بکاپ / ریستور",
     "btn_adm_preview": "👁 پیش‌نمایش منوی کاربر",
+    "btn_adm_exit_preview": "🛠 بازگشت به پنل ادمین",
+    "btn_buy_continue": "🟢✅ ادامه خرید",
     "btn_back": "⬅️ بازگشت",
     "btn_pay_wallet": "🟢👛 پرداخت از کیف پول",
     "btn_pay_card": "🔵💳 کارت به کارت",
@@ -789,6 +808,8 @@ DEFAULT_SETTINGS = {
     "show_support": "1",
     "show_miniapp": "1",
     "menu_layout": "compact",
+    "nav_mode": "inline",
+    "wallet_topup_presets": "50000,100000,200000,500000",
     "menu_order": "shop,services,wallet,support,loyalty,reseller_apply,miniapp",
     "pg_username_prefix": "clk",
     "pg_username_suffix": "",
@@ -901,12 +922,11 @@ SETTINGS_TABS: list[tuple[str, str]] = [
     ("links", "لینک‌های سریع"),
     ("qr", "QR اشتراک"),
     ("naming", "نام‌گذاری سرویس"),
-    ("forcejoin", "کانال اجباری"),
-    ("terms", "قوانین"),
+    ("limits", "محدودیت"),
+    ("guides", "آموزش اتصال"),
     ("notifications", "نوتیفیکیشن"),
     ("daily_report", "گزارش روزانه"),
     ("bot", "ربات و اتصال"),
-    ("pasarguard", "اتصال پاسارگارد"),
 ]
 
 # Legacy bot-settings tabs moved to page-level modals (finance / support / loyalty).
@@ -917,10 +937,16 @@ SETTINGS_DOMAIN_REDIRECTS: dict[str, str] = {
     "supports": "/tickets?supports=1",
     "loyalty": "/loyalty?settings=referral",
     "reseller": "/resellers",
+    # Merged into «محدودیت»
+    "forcejoin": "/settings?tab=limits",
+    "terms": "/settings?tab=limits",
+    # PG connection lives under «ربات و اتصال»
+    "pasarguard": "/settings?tab=bot",
 }
 
 # Web-panel settings (sidebar under dashboard — not bot settings tabs)
 PANEL_SETTINGS_TABS: list[tuple[str, str]] = [
+    ("general", "عمومی"),
     ("backup", "بکاپ"),
     ("pwa", "وب‌اپ"),
     ("ssl", "SSL"),
@@ -967,6 +993,63 @@ SETTING_GROUPS = {
             "پیامی که قبل از ثبت‌نام به کاربر بدون معرف نشان داده می‌شود.",
         ),
     ],
+    "اکانت تست": [
+        (
+            "trial_require_contact",
+            "تأیید شماره تماس برای تست",
+            "toggle",
+            "قبل از دریافت اکانت تست، دکمه اشتراک‌گذاری شماره (Contact) الزامی است. فقط شماره متعلق به همان اکانت تلگرام پذیرفته می‌شود.",
+        ),
+        (
+            "trial_require_iran_phone",
+            "فقط شماره ایران برای تست",
+            "toggle",
+            "همراه با تأیید تماس: فقط موبایل ایران (+۹۸) پذیرفته می‌شود. شماره خام ذخیره یا لاگ نمی‌شود.",
+        ),
+    ],
+    "شماره تماس خرید": [
+        (
+            "purchase_require_contact",
+            "شماره تماس اجباری برای خرید اشتراک",
+            "toggle",
+            "قبل از خرید عادی، دلخواه یا عمده، شماره خود کاربر با دکمه Contact تأیید شود. تأیید فقط برای همان فروشگاه است؛ شماره خام ذخیره نمی‌شود. تست تنظیم جداگانه دارد.",
+        ),
+    ],
+    "ضدتقلب رسید": [
+        (
+            "receipt_dup_policy",
+            "رسید تکراری",
+            "select",
+            "اگر همان تصویر رسید برای پرداخت دیگری دیده شود",
+            [("warn", "هشدار به بررسی‌کننده"), ("block", "رد کردن آپلود")],
+        ),
+    ],
+    "آموزش اتصال": [
+        (
+            "btn_guides",
+            "متن دکمه فهرست آموزش",
+            "text",
+            "دکمه اینلاین روی پیام تحویل و صفحه سرویس",
+        ),
+        (
+            "btn_guide_open_link",
+            "متن دکمه لینک اشتراک",
+            "text",
+            "وقتی آموزش deep-link فعال باشد",
+        ),
+        (
+            "btn_style_guides",
+            "رنگ دکمه فهرست آموزش",
+            "btn_color",
+            "همان رنگ‌بندی تلگرام",
+        ),
+        (
+            "connection_guides",
+            "آموزش‌ها (دکمه‌ها)",
+            "connection_guides",
+            "برای هر آموزش عنوان، متن، مخاطب (کاربر/نماینده)، رنگ و لینک اشتراک جدا تعریف کنید.",
+        ),
+    ],
     "متن دعوت دوستان": [
         ("referral_text", "متن دعوت دوستان", "textarea", "متغیرها: {code} {link} — فهرست: /message-variables"),
     ],
@@ -976,6 +1059,12 @@ SETTING_GROUPS = {
         ("btn_wallet", "دکمه کیف پول", "text", ""),
         ("btn_wallet_topup", "دکمه شارژ کیف پول", "text", "زیرمنوی کیف پول"),
         ("btn_wallet_tx", "دکمه تراکنش‌ها", "text", "زیرمنوی کیف پول"),
+        (
+            "wallet_topup_presets",
+            "مبالغ آماده شارژ (تومان)",
+            "list",
+            "هر مبلغ را جداگانه اضافه کنید؛ برای تغییر مبلغ، آن را در فهرست ویرایش کنید.",
+        ),
         ("btn_support", "دکمه پشتیبانی", "text", ""),
         ("btn_support_new", "دکمه تیکت جدید", "text", "زیرمنوی پشتیبانی (حالت تیکت)"),
         ("btn_support_list", "دکمه تیکت‌های من", "text", "زیرمنوی پشتیبانی (حالت تیکت)"),
@@ -988,21 +1077,32 @@ SETTING_GROUPS = {
         ("btn_loy_wheel", "دکمه چرخ شانس", "text", "زیرمنوی باشگاه مشتریان"),
         ("btn_loy_history", "دکمه تاریخچه باشگاه", "text", "زیرمنوی باشگاه مشتریان"),
         ("btn_reseller_apply", "دکمه درخواست نمایندگی", "text", ""),
-        ("btn_miniapp", "دکمه مینی‌اپ", "text", "فقط به‌صورت اینلاین زیر پیام (محدودیت تلگرام)"),
+        ("btn_miniapp", "دکمه مینی‌اپ", "text", "روی کیبورد پایین به‌صورت web_app"),
         ("btn_wholesale", "دکمه فروش عمده", "text", "در لیست پلن‌های فروشگاه نمایش داده می‌شود"),
         ("btn_reseller", "دکمه نماینده", "text", "در کیبورد ربات اختصاصی نماینده"),
         ("btn_reseller_creds", "دکمه اطلاعات ورود نماینده", "text", "در ربات اصلی برای صاحب فروشگاه"),
         ("btn_admin", "دکمه ادمین", "text", ""),
-        ("btn_menu_home", "دکمه منوی اصلی (کیبورد)", "text", "ردیف پایین کیبورد دائمی"),
-        ("btn_adm_orders", "دکمه سفارش‌ها (ادمین)", "text", "کیبورد ادمین"),
-        ("btn_adm_payments", "دکمه رسیدها (ادمین)", "text", "کیبورد ادمین"),
-        ("btn_adm_tickets", "دکمه تیکت‌ها (ادمین)", "text", "کیبورد ادمین"),
-        ("btn_adm_plans", "دکمه پلن‌ها (ادمین)", "text", "کیبورد ادمین"),
-        ("btn_adm_pg", "دکمه پاسارگارد (ادمین)", "text", "کیبورد ادمین"),
-        ("btn_adm_users", "دکمه کاربران (ادمین)", "text", "کیبورد ادمین"),
-        ("btn_adm_settings", "دکمه تنظیمات (ادمین)", "text", "کیبورد ادمین"),
-        ("btn_adm_broadcast", "دکمه پیام گروهی (ادمین)", "text", "کیبورد ادمین"),
-        ("btn_adm_preview", "دکمه پیش‌نمایش کاربر (ادمین)", "text", "کیبورد ادمین"),
+        ("btn_menu_home", "دکمه منوی اصلی (کیبورد)", "text", "خروج از پیش‌نمایش / خانه"),
+        ("btn_adm_hub_ops", "گروه عملیات روزانه (ادمین)", "text", "هاب پنل ادمین"),
+        ("btn_adm_hub_people", "گروه افراد (ادمین)", "text", "هاب پنل ادمین"),
+        ("btn_adm_hub_product", "گروه محصول و PG (ادمین)", "text", "هاب پنل ادمین"),
+        ("btn_adm_hub_system", "گروه سیستم (ادمین)", "text", "هاب پنل ادمین"),
+        ("btn_adm_dash", "دکمه داشبورد (ادمین)", "text", "هاب عملیات"),
+        ("btn_adm_reports", "دکمه گزارشات (ادمین)", "text", "هاب عملیات"),
+        ("btn_adm_orders", "دکمه سفارش‌ها (ادمین)", "text", "هاب عملیات"),
+        ("btn_adm_payments", "دکمه رسیدها (ادمین)", "text", "هاب عملیات"),
+        ("btn_adm_tickets", "دکمه تیکت‌ها (ادمین)", "text", "هاب عملیات"),
+        ("btn_adm_plans", "دکمه پلن‌ها (ادمین)", "text", "هاب محصول"),
+        ("btn_adm_pg", "دکمه پاسارگارد (ادمین)", "text", "هاب محصول"),
+        ("btn_adm_users", "دکمه کاربران (ادمین)", "text", "هاب افراد"),
+        ("btn_adm_resellers", "دکمه نمایندگان (ادمین)", "text", "هاب افراد"),
+        ("btn_adm_loyalty", "دکمه باشگاه (ادمین)", "text", "هاب افراد"),
+        ("btn_adm_settings", "دکمه تنظیمات (ادمین)", "text", "هاب سیستم"),
+        ("btn_adm_broadcast", "دکمه پیام گروهی (ادمین)", "text", "هاب سیستم"),
+        ("btn_adm_backup", "دکمه بکاپ (ادمین)", "text", "هاب سیستم"),
+        ("btn_adm_preview", "دکمه پیش‌نمایش کاربر (ادمین)", "text", "هاب سیستم"),
+        ("btn_adm_exit_preview", "خروج از پیش‌نمایش", "text", "روی کیبورد هنگام پیش‌نمایش منوی کاربر"),
+        ("btn_buy_continue", "ادامه خرید (فروشگاه)", "text", "زیر جزئیات پلن"),
         ("btn_back", "دکمه بازگشت", "text", "زیر پیام‌های انتخابی (اینلاین)"),
         ("btn_cancel", "انصراف", "text", ""),
         ("btn_renew", "تمدید", "text", ""),
@@ -1014,8 +1114,8 @@ SETTING_GROUPS = {
             "menu_layout",
             "چیدمان کیبورد اصلی",
             "select",
-            "منوی اصلی داخل کیبورد پایین است؛ انتخاب‌ها (پلن/پرداخت/…) زیر پیام می‌آیند",
-            [("classic", "کلاسیک — هر دکمه یک ردیف"), ("compact", "فشرده — دکمه‌ها جفتی")],
+            "منوی اصلی داخل کیبورد پایین است؛ انتخاب‌ها (پلن/پرداخت/…) زیر پیام اینلاین می‌آیند",
+            [("classic", "تکی — هر دکمه یک ردیف"), ("compact", "فشرده — دکمه‌ها جفتی")],
         ),
     ],
     "مدیریت PAYG": [
@@ -1400,7 +1500,6 @@ TAB_SETTING_GROUPS: dict[str, list[str]] = {
     "colors": ["رنگ دکمه‌ها"],
     "qr": ["QR اشتراک"],
     "payment": [
-        "معرف اجباری",
         "روش‌های پرداخت",
         "کارت به کارت",
         "تأیید خودکار کارت به کارت",
@@ -1415,6 +1514,18 @@ TAB_SETTING_GROUPS: dict[str, list[str]] = {
     "supports": ["متن پشتیبانی ربات"],
     "loyalty": ["متن دعوت دوستان"],
     "naming": ["نام‌گذاری سرویس در پاسارگارد"],
+    "limits": [
+        "معرف اجباری",
+        "شماره تماس خرید",
+        "اکانت تست",
+        "ضدتقلب رسید",
+        "کانال اجباری",
+        "قوانین ورود به ربات",
+        "قوانین خرید پلن کاربر",
+        "قوانین خرید پلن نماینده",
+    ],
+    "guides": ["آموزش اتصال"],
+    # Legacy aliases — redirected to limits
     "forcejoin": ["کانال اجباری"],
     "terms": ["قوانین ورود به ربات", "قوانین خرید پلن کاربر", "قوانین خرید پلن نماینده"],
     "billing": ["مدیریت PAYG"],
@@ -1800,6 +1911,19 @@ async def delete_bot_user(
     )
     await session.execute(delete(TermsAcceptance).where(TermsAcceptance.bot_user_id == user_id))
 
+    from app.db.models import ChargeCodeRedemption, ChargeCodeUse
+    from app.services.gift_codes import release_gift_discount
+
+    for unpaid in (await session.execute(select(Order).where(
+        Order.user_id == user_id,
+        Order.status.in_(("pending", "awaiting_receipt", "awaiting_approval", "rejected", "cancelled")),
+        Order.discount_code.is_not(None),
+    ))).scalars().all():
+        await release_gift_discount(session, unpaid)
+    await session.execute(delete(ChargeCodeUse).where(ChargeCodeUse.user_id == user_id))
+    await session.execute(
+        delete(ChargeCodeRedemption).where(ChargeCodeRedemption.user_id == user_id)
+    )
     await session.execute(delete(Payment).where(Payment.user_id == user_id))
     await session.execute(delete(Order).where(Order.user_id == user_id))
     await session.execute(delete(UserService).where(UserService.bot_user_id == user_id))

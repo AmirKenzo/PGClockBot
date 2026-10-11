@@ -99,6 +99,7 @@ class BotUser(Base):
         ForeignKey("org_principals.id"), nullable=True, index=True
     )
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), index=True)
     staff_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # Staff color marker (fixed palette in app.services.color_tags).
     color_tag: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, index=True)
@@ -194,6 +195,14 @@ class ServiceAddonPack(Base):
 
 class Order(Base):
     __tablename__ = "orders"
+    __table_args__ = (
+        Index("uq_orders_renewal_request_key", "renewal_request_key", unique=True),
+        Index(
+            "uq_orders_service_quota_mutation", "service_id", unique=True,
+            sqlite_where=text("service_mutation_pending = true"),
+            postgresql_where=text("service_mutation_pending = true"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("bot_users.id"), index=True)
@@ -212,6 +221,11 @@ class Order(Base):
     payment_method: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     discount_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Purchased terms and an absolute target, persisted before panel mutation.
+    renewal_snapshot: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    renewal_request_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Serialize quota changes and retain exclusion while a renewal needs review.
+    service_mutation_pending: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     service_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("user_services.id"), nullable=True, index=True
     )
@@ -352,6 +366,8 @@ class UserService(Base):
     )
     pg_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     pg_username: Mapped[str] = mapped_column(String(128))
+    cancellation_pending: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    is_cancelled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     subscription_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subscription_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     remark: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -367,6 +383,7 @@ class UserService(Base):
     quota_synced_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    quota_status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     renew_nudge_sent_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -533,6 +550,8 @@ class ResellerProfile(Base):
     pg_admin_username: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     # Fernet ciphertext of the PasarGuard admin password (shop ops must use this, not owner).
     pg_admin_password_enc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Fernet ciphertext of a PasarGuard admin API key (X-Api-Key). Preferred over password when set.
+    pg_api_key_enc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     pg_role_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     share_pg_panel_url: Mapped[bool] = mapped_column(Boolean, default=False)
     web_username: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, unique=True)
@@ -807,6 +826,8 @@ class PgStaffAccess(Base):
     web_password_hash: Mapped[str] = mapped_column(String(255))
     # Phase C5: encrypted PasarGuard password (same secret_box as resellers)
     pg_admin_password_enc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Fernet ciphertext of a PasarGuard admin API key (X-Api-Key). Preferred over password when set.
+    pg_api_key_enc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     pg_role_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -843,6 +864,8 @@ class OrgPrincipal(Base):
     # Phase 2C: encrypted PasarGuard password for this Principal's own PG identity
     # (never Owner env credentials). Used for tenant-safe PG client selection.
     pg_password_enc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Fernet ciphertext of a PasarGuard admin API key (X-Api-Key). Preferred over password when set.
+    pg_api_key_enc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     reseller_profile_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("reseller_profiles.id"), nullable=True
     )
@@ -912,15 +935,69 @@ class OrgPrincipalWebIdentity(Base):
 
 
 class TrialClaim(Base):
-    """One free trial per user per shop — unique constraint closes the race window."""
+    """One free trial per user per shop — unique constraint closes the race window.
+
+    Optional phone_hash (HMAC-SHA256, never raw) and telegram_id close contact-gated
+    abuse windows. Uniques are shop-scoped so platform and reseller shops stay isolated.
+    """
 
     __tablename__ = "trial_claims"
-    __table_args__ = (UniqueConstraint("user_id", "shop_key", name="uq_trial_claims_user_shop"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "shop_key", name="uq_trial_claims_user_shop"),
+        UniqueConstraint("telegram_id", "shop_key", name="uq_trial_claims_tg_shop"),
+        UniqueConstraint("phone_hash", "shop_key", name="uq_trial_claims_phone_shop"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("bot_users.id"), index=True)
     shop_key: Mapped[str] = mapped_column(String(64))  # "platform" or str(reseller_id)
     order_id: Mapped[Optional[int]] = mapped_column(ForeignKey("orders.id"), nullable=True)
+    telegram_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    phone_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PurchaseContact(Base):
+    """A customer's verified Telegram contact, isolated to the current shop."""
+
+    __tablename__ = "purchase_contacts"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("bot_users.id", ondelete="CASCADE"), primary_key=True)
+    shop_key: Mapped[int] = mapped_column(Integer, primary_key=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger)
+    phone_hash: Mapped[str] = mapped_column(String(64))
+    verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChargeCodeRedemption(Base):
+    """Per-user gift-code redemption — UNIQUE(code_id, user_id) enforces one redeem each."""
+
+    __tablename__ = "charge_code_redemptions"
+    __table_args__ = (
+        UniqueConstraint("code_id", "user_id", name="uq_charge_code_redemptions_code_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code_id: Mapped[int] = mapped_column(
+        ForeignKey("charge_codes.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("bot_users.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PaymentReceiptFingerprint(Base):
+    """Telegram file_unique_id + image sha256 for duplicate-receipt review warnings."""
+
+    __tablename__ = "payment_receipt_fingerprints"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    payment_id: Mapped[int] = mapped_column(
+        ForeignKey("payments.id", ondelete="CASCADE"), index=True
+    )
+    file_unique_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
+    sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -1132,13 +1209,20 @@ class DeliveryFailure(Base):
 
 
 class ChargeCode(Base):
-    """Wallet gift / charge codes (fixed toman credit)."""
+    """Shop-scoped wallet gifts and checkout discount codes."""
 
     __tablename__ = "charge_codes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     amount: Mapped[int] = mapped_column(Integer, default=0)  # toman
+    kind: Mapped[str] = mapped_column(String(16), default="wallet", server_default="wallet")
+    percent: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    max_discount_toman: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    max_uses_per_user: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    first_purchase_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    purchase_types: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     max_uses: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     used_count: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -1146,6 +1230,20 @@ class ChargeCode(Base):
         ForeignKey("bot_users.id"), nullable=True, index=True
     )
     note: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChargeCodeUse(Base):
+    """Reservations count towards limits until an unpaid order is released."""
+
+    __tablename__ = "charge_code_uses"
+    __table_args__ = (Index("ix_charge_code_uses_code_user_status", "charge_code_id", "user_id", "status"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    charge_code_id: Mapped[int] = mapped_column(ForeignKey("charge_codes.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("bot_users.id"))
+    order_id: Mapped[Optional[int]] = mapped_column(ForeignKey("orders.id"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="reserved")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -1298,3 +1396,64 @@ class TermsAcceptance(Base):
     accepted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class ServiceCancellation(Base):
+    __tablename__ = "service_cancellations"
+    __table_args__ = (Index("ix_service_cancellations_notification", "notification_status", "id"), Index(
+        "uq_service_cancellations_open", "service_id", unique=True,
+        sqlite_where=text("status IN ('pending','processing','review','approved')"),
+        postgresql_where=text("status IN ('pending','processing','review','approved')"),
+    ),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    service_id: Mapped[int] = mapped_column(ForeignKey("user_services.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("bot_users.id", ondelete="CASCADE"), index=True)
+    reseller_id: Mapped[Optional[int]] = mapped_column(ForeignKey("bot_users.id", ondelete="CASCADE"), nullable=True, index=True)
+    reason: Mapped[str] = mapped_column(Text)
+    pg_user_id: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    refund_amount: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    operator_note: Mapped[str] = mapped_column(Text, default="")
+    processed_by: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    lock_token: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    notification_status: Mapped[str] = mapped_column(String(24), default="pending", server_default="pending")
+    notification_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TargetedCampaign(Base):
+    __tablename__ = "targeted_campaigns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    reseller_id: Mapped[Optional[int]] = mapped_column(ForeignKey("bot_users.id", ondelete="CASCADE"), nullable=True, index=True)
+    audience: Mapped[str] = mapped_column(String(24))
+    days: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(24), default="draft", index=True)
+    created_by: Mapped[str] = mapped_column(String(128))
+    lock_token: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CampaignRecipient(Base):
+    __tablename__ = "campaign_recipients"
+    __table_args__ = (UniqueConstraint("campaign_id", "user_id", name="uq_campaign_recipient"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("targeted_campaigns.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("bot_users.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    message_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    attempted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MarketingPreference(Base):
+    __tablename__ = "marketing_preferences"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("bot_users.id", ondelete="CASCADE"), primary_key=True)
+    shop_key: Mapped[int] = mapped_column(Integer, primary_key=True)  # 0 = platform
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -32,11 +32,13 @@ FEATURE_PERMS: list[tuple[str, str]] = [
     ("payments", "پرداخت‌ها و تأیید رسید"),
     ("tickets", "تیکت‌ها"),
     ("stats", "آمار"),
+    ("demo_users", "مدیریت کاربران دمو"),
     ("shop_settings", "تنظیمات ربات فروشگاه"),
+    ("campaigns", "کمپین‌های هدفمند فروشگاه"),
     ("loyalty", "باشگاه مشتریان"),
 ]
 
-DEFAULT_FEATURE_PERMS = "dashboard,plans,orders,payments,tickets,stats,shop_settings,loyalty"
+DEFAULT_FEATURE_PERMS = "dashboard,plans,orders,payments,tickets,stats,shop_settings,campaigns,loyalty"
 
 # Tabs a reseller may edit for their own shop bot
 RESELLER_SETTINGS_TABS: list[tuple[str, str]] = [
@@ -48,8 +50,8 @@ RESELLER_SETTINGS_TABS: list[tuple[str, str]] = [
     ("menu", "منوی بات"),
     ("links", "لینک‌های سریع"),
     ("qr", "QR اشتراک"),
-    ("forcejoin", "کانال اجباری"),
-    ("terms", "قوانین"),
+    ("limits", "محدودیت"),
+    ("guides", "آموزش اتصال"),
     ("naming", "نام‌گذاری سرویس"),
     ("notifications", "نوتیفیکیشن"),
     ("daily_report", "گزارش روزانه"),
@@ -61,6 +63,8 @@ SHOP_SETTINGS_DOMAIN_REDIRECTS: dict[str, str] = {
     "payment": "/finance?tab=orders&settings=payment",
     "supports": "/tickets?supports=1",
     "loyalty": "/loyalty?settings=referral",
+    "forcejoin": "/shop-settings?tab=limits",
+    "terms": "/shop-settings?tab=limits",
 }
 SHOP_SETTINGS_DOMAIN_POST_TABS = frozenset(SHOP_SETTINGS_DOMAIN_REDIRECTS.keys())
 
@@ -261,7 +265,10 @@ async def apply_reseller_panel_password(
     if (
         linked is not None
         and str(getattr(linked, "status", "") or "") == "active"
-        and (linked.pg_password_enc or "").strip()
+        and (
+            (linked.pg_password_enc or "").strip()
+            or (getattr(linked, "pg_api_key_enc", None) or "").strip()
+        )
         and int(getattr(linked, "depth", -1) or -1) in (1, 2)
     ):
         from app.services.pasarguard import get_pg_for_principal, invalidate_pg_principal_cache
@@ -278,7 +285,9 @@ async def apply_reseller_panel_password(
         except Exception:
             pass
         return
-    if (profile.pg_admin_password_enc or "").strip():
+    if (profile.pg_admin_password_enc or "").strip() or (
+        getattr(profile, "pg_api_key_enc", None) or ""
+    ).strip():
         from app.services.pasarguard import get_pg_for_reseller, invalidate_pg_reseller_cache
 
         try:
@@ -301,6 +310,77 @@ async def apply_reseller_panel_password(
     # Drop cached PG clients so next shop op uses the new password
     try:
         reset_pg()
+    except Exception:
+        pass
+
+
+async def apply_reseller_pg_api_key(
+    session: AsyncSession,
+    profile: ResellerProfile,
+    *,
+    api_key: str | None = None,
+    clear: bool = False,
+) -> None:
+    """Store or clear the shop's PasarGuard admin API key (encrypted).
+
+    When a linked OrgPrincipal holds the credential SoT, the key is written
+    there and the profile column is cleared. Raises ``ValueError`` on failure.
+    """
+    from app.services.org_principals import get_principal_by_reseller_profile
+    from app.services.pasarguard import (
+        invalidate_pg_principal_cache,
+        invalidate_pg_reseller_cache,
+    )
+    from app.services.secret_box import encrypt_secret
+
+    linked = await get_principal_by_reseller_profile(session, int(profile.id))
+
+    if clear:
+        if linked is not None and int(getattr(linked, "depth", -1) or -1) in (1, 2):
+            linked.pg_api_key_enc = None
+            try:
+                invalidate_pg_principal_cache(int(linked.id))
+            except Exception:
+                pass
+        profile.pg_api_key_enc = None
+        try:
+            invalidate_pg_reseller_cache(int(profile.user_id))
+        except Exception:
+            pass
+        return
+
+    raw = (api_key or "").replace("\r", "").strip()
+    if not raw:
+        return
+    if len(raw) < 16:
+        raise ValueError(
+            "کلید API پاسارگارد کوتاه است — مقدار کامل را از پنل پاسارگارد کپی کنید"
+        )
+    enc = encrypt_secret(raw)
+    if not enc:
+        raise ValueError(
+            "رمز‌گذاری کلید API ناموفق بود — تنظیمات رمزنگاری سرور را بررسی کنید"
+        )
+    if (
+        linked is not None
+        and str(getattr(linked, "status", "") or "") == "active"
+        and int(getattr(linked, "depth", -1) or -1) in (1, 2)
+        and (linked.pg_username or "").strip()
+    ):
+        linked.pg_api_key_enc = enc
+        profile.pg_api_key_enc = None
+        try:
+            invalidate_pg_principal_cache(int(linked.id))
+        except Exception:
+            pass
+        try:
+            invalidate_pg_reseller_cache(int(profile.user_id))
+        except Exception:
+            pass
+        return
+    profile.pg_api_key_enc = enc
+    try:
+        invalidate_pg_reseller_cache(int(profile.user_id))
     except Exception:
         pass
 
@@ -1210,6 +1290,16 @@ async def seed_reseller_shop_settings(session: AsyncSession, reseller_user_id: i
         "force_join_msg",
         "btn_force_join",
         "btn_force_join_check",
+        "trial_require_contact",
+        "purchase_require_contact",
+        "trial_require_iran_phone",
+        "receipt_dup_policy",
+        "connection_guides",
+        "btn_guides",
+        "btn_guide_open_link",
+        "btn_style_guides",
+        "referral_required",
+        "referral_required_text",
         "terms_entry_enabled",
         "terms_entry_text",
         "terms_entry_btn",
@@ -1226,6 +1316,7 @@ async def seed_reseller_shop_settings(session: AsyncSession, reseller_user_id: i
         "btn_style_terms_buy_reseller",
         "terms_buy_reseller_reaccept",
         "notify_new_ticket",
+        "notify_service_cancellation",
         "show_miniapp",
         "admin_daily_report_enabled",
         "admin_daily_report_hour",
@@ -1459,7 +1550,10 @@ async def provision_existing_pg_admin(
             return None, None, "رمز عبور الزامی است"
         from app.services.secret_box import decrypt_secret
 
-        if current and not decrypt_secret(current.pg_admin_password_enc):
+        if current and not (
+            decrypt_secret(current.pg_admin_password_enc)
+            or decrypt_secret(getattr(current, "pg_api_key_enc", None))
+        ):
             return (
                 None,
                 None,
@@ -1583,6 +1677,10 @@ async def convert_staff_to_reseller(
     if staff is None:
         return None, None, "دسترسی ادمین فرعی برای این ادمین وجود ندارد"
 
+    # Preserve API key ciphertext across revoke → provision (password still required
+    # for web login; API key alone cannot seed a reseller web password).
+    staff_api_key_enc = getattr(staff, "pg_api_key_enc", None)
+
     pwd = (password or "").strip()
     if not pwd:
         pwd = (decrypt_secret(staff.pg_admin_password_enc) or "").strip()
@@ -1591,7 +1689,8 @@ async def convert_staff_to_reseller(
             None,
             None,
             "رمز عبور الزامی است. "
-            "علت: اعتبارنامه پاسارگارد برای ادمین فرعی ذخیره نشده. "
+            "علت: رمز پاسارگارد برای ادمین فرعی ذخیره نشده "
+            "(کلید API به‌تنهایی برای ورود وب کافی نیست). "
             "راه حل: رمز مشترک را در فرم وارد کنید.",
         )
 
@@ -1611,6 +1710,15 @@ async def convert_staff_to_reseller(
         # Staff delete was flushed but not committed; restore prior state.
         await session.rollback()
         return None, None, f"تبدیل به نماینده ناموفق بود: {err}"
+    if profile is not None and (staff_api_key_enc or "").strip():
+        profile.pg_api_key_enc = staff_api_key_enc
+        try:
+            from app.services.pasarguard import invalidate_pg_reseller_cache
+
+            invalidate_pg_reseller_cache(int(profile.user_id))
+        except Exception:
+            pass
+        await session.commit()
     return profile, hint, None
 
 

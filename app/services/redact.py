@@ -15,6 +15,7 @@ _JSON_SECRET_RE = re.compile(
 )
 _COOKIE_RE = re.compile(r"(?i)(cookie\s*[:=]\s*)([^\n]+)")
 _AUTH_HEADER_RE = re.compile(r"(?i)(authorization\s*[:=]\s*)([^\n]+)")
+_X_API_KEY_HEADER_RE = re.compile(r"(?i)(x-api-key\s*[:=]\s*)([^\n]+)")
 _BASIC_AUTH_RE = re.compile(r"(://)([^:/@\s]+):([^@/\s]+)(@)")
 _GATE_QS_RE = re.compile(r"(?i)([?&]gate=)([^&\s]+)")
 
@@ -27,6 +28,7 @@ def redact(text: object, *, limit: int = 400) -> str:
     s = _JSON_SECRET_RE.sub(r"\1\"<redacted>\"", s)
     s = _COOKIE_RE.sub(r"\1<redacted>", s)
     s = _AUTH_HEADER_RE.sub(r"\1<redacted>", s)
+    s = _X_API_KEY_HEADER_RE.sub(r"\1<redacted>", s)
     s = _BASIC_AUTH_RE.sub(r"\1\2:<redacted>\4", s)
     s = _GATE_QS_RE.sub(r"\1<redacted>", s)
     s = s.replace("\n", " ").strip()
@@ -74,4 +76,24 @@ def user_safe_error(
     ):
         return fallback
     return msg
+
+
+def operator_error(
+    exc: object,
+    *,
+    prefix: str | None = None,
+    fallback: str = "خطای ناشناخته",
+    limit: int = 400,
+) -> str:
+    """Clear staff-facing error (web panel / admin bot). Prefer PG detail."""
+    detail = user_safe_error(exc, fallback=fallback, limit=limit)
+    prefix = (prefix or "").strip()
+    if not prefix:
+        return detail
+    if not detail or detail == prefix:
+        return prefix
+    # Avoid "X ناموفق: X ناموفق: …" when the exception already carries the prefix.
+    if detail.startswith(prefix):
+        return detail
+    return f"{prefix}: {detail}"
 

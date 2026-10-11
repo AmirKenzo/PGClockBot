@@ -18,6 +18,7 @@ def main() -> None:
         "PG_BASE_URL",
         "PG_USERNAME",
         "PG_PASSWORD",
+        "PG_API_KEY",
         "WEB_HOST",
         "WEB_PORT",
         "WEB_SECRET",
@@ -29,6 +30,8 @@ def main() -> None:
         "PUBLIC_BASE_URL",
         "CURRENCY",
         "DEFAULT_LOCALE",
+        "UPDATE_CHANNEL",
+        "DEPLOYED_CHANNEL",
     ]
     lines: list[str] = []
     for key in order:

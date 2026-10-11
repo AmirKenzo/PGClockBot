@@ -115,8 +115,8 @@ async def build_main_reply_keyboard(
     session: AsyncSession,
     db_user: BotUser,
     *,
-    is_reseller_bot: bool = False,
-    reseller_owner_id: int | None = None,
+    is_reseller_bot: bool,
+    reseller_owner_id: int | None,
     as_user: bool = False,
     ui: dict | None = None,
 ) -> tuple[ReplyKeyboardMarkup, dict, str]:
@@ -170,12 +170,23 @@ async def build_main_reply_keyboard(
         pg_feats, can_reps = await _platform_admin_menu_flags(
             session, db_user, is_reseller_bot=is_reseller_bot
         )
+    from app.services.users import on as _setting_on
+
+    # Apply CTA is for normal customers only. Admins/resellers already staff;
+    # preview (as_user) still shows it so the customer menu looks accurate.
+    show_apply = (
+        not is_reseller_bot
+        and _setting_on(ui.get("show_reseller_apply"))
+        and "reseller_apply" in set(kb._menu_order(ui))
+        and (as_user or role == "user")
+    )
     markup = kb.main_reply_keyboard(
         role,
         has_services=has,
         ui=ui,
         as_user=as_user,
         show_reseller_creds=show_creds,
+        show_reseller_apply=show_apply,
         profile=owner_profile,
         pg_features=pg_feats,
         can_manage_representatives=can_reps,
@@ -294,8 +305,8 @@ async def buyer_main_reply_keyboard(
     db_user: BotUser,
     *,
     order=None,
-    is_reseller_bot: bool = False,
-    reseller_owner_id: int | None = None,
+    is_reseller_bot: bool,
+    reseller_owner_id: int | None,
 ) -> tuple[ReplyKeyboardMarkup, dict]:
     """Customer main menu after checkout/delivery (always shows «سرویس‌های من» when owned)."""
     rid = reseller_owner_id
@@ -336,8 +347,8 @@ async def restore_main_reply(
     *,
     text: str = "🏠 منوی اصلی",
     state: FSMContext | None = None,
-    is_reseller_bot: bool = False,
-    reseller_owner_id: int | None = None,
+    is_reseller_bot: bool,
+    reseller_owner_id: int | None,
     as_user: bool = False,
 ) -> dict:
     if state is not None:
@@ -369,137 +380,51 @@ async def show_nav_keyboard(
     text: str,
     state: FSMContext | None = None,
     push: bool = True,
-    is_reseller_bot: bool = False,
-    reseller_owner_id: int | None = None,
+    is_reseller_bot: bool,
+    reseller_owner_id: int | None,
     profile=None,
     order_id: int | None = None,
     as_user: bool = False,
     **send_kw,
 ) -> dict:
-    """Show the reply keyboard for ``level`` and update nav stack."""
+    """Show the lasting reply keyboard and update nav stack (Option B).
+
+    Nested menus are inline panels; ReplyKeyboard stays thin main anchors.
+    ``NAV_USER_PREVIEW`` swaps to the customer KB plus an exit button.
+    """
+    _ = profile  # classic reseller submenu chrome removed
     ui = await get_all_settings(session)
     if state is not None:
         await set_nav_level(state, level, push=push)
         if order_id is not None:
             await state.update_data(**{PAY_ORDER_ID: int(order_id)})
 
-    if level == NAV_SHOP:
-        markup = kb.shop_reply_keyboard(ui)
-    elif level == NAV_SERVICES:
-        # Services list uses main reply chrome; Back from a service restores this level.
-        markup, ui, _ = await build_main_reply_keyboard(
-            session,
-            db_user,
-            is_reseller_bot=is_reseller_bot,
-            reseller_owner_id=reseller_owner_id,
-            as_user=as_user,
-            ui=ui,
-        )
-    elif level == NAV_RESELLER_APPLY:
-        markup = kb.reseller_apply_reply_keyboard(ui)
-    elif level == NAV_WALLET:
-        markup = kb.wallet_reply_keyboard(ui)
-    elif level == NAV_SUPPORT:
-        markup = kb.support_reply_keyboard(ui)
-    elif level == NAV_LOYALTY:
-        markup = kb.loyalty_reply_keyboard(ui)
-    elif level == NAV_ADMIN_LOYALTY:
-        # Platform admin sees tiers; reseller manage hub excludes global tiers
-        include_tiers = not bool(is_reseller_bot)
-        markup = kb.admin_loyalty_reply_keyboard(ui, include_tiers=include_tiers)
-    elif level == NAV_ADMIN:
-        pg_feats, can_reps = await _platform_admin_menu_flags(
-            session, db_user, is_reseller_bot=is_reseller_bot
-        )
-        markup = kb.admin_reply_keyboard(
-            ui, pg_features=pg_feats, can_manage_representatives=can_reps
-        )
-    elif level == NAV_ADMIN_OPS:
-        markup = kb.admin_ops_reply_keyboard(ui)
-    elif level == NAV_ADMIN_PEOPLE:
-        _, can_reps = await _platform_admin_menu_flags(
-            session, db_user, is_reseller_bot=is_reseller_bot
-        )
-        markup = kb.admin_people_reply_keyboard(
-            ui, can_manage_representatives=can_reps
-        )
-    elif level == NAV_ADMIN_PRODUCT:
-        pg_feats, _ = await _platform_admin_menu_flags(
-            session, db_user, is_reseller_bot=is_reseller_bot
-        )
-        markup = kb.admin_product_reply_keyboard(ui, pg_features=pg_feats)
-    elif level == NAV_ADMIN_SYSTEM:
-        markup = kb.admin_system_reply_keyboard(ui)
-    elif level == NAV_ADMIN_PG:
-        feats: frozenset[str] = frozenset()
-        can_create = False
-        try:
-            from app.bot.auth import bot_migrated_pg_features, bot_pg_can_create_user
-
-            feats = await bot_migrated_pg_features(
-                session, db_user, is_reseller_bot=is_reseller_bot
-            )
-            can_create = await bot_pg_can_create_user(
-                session, db_user, is_reseller_bot=is_reseller_bot
-            )
-        except Exception:
-            feats = frozenset()
-            can_create = False
-        if not feats:
-            markup = kb.admin_product_reply_keyboard(ui, pg_features=feats)
-        else:
-            markup = kb.pg_reply_keyboard(ui, features=feats, can_create_user=can_create)
-    elif level == NAV_ADMIN_USERS:
-        markup = kb.admin_users_reply_keyboard(ui)
-    elif level == NAV_ADMIN_RESELLERS:
-        markup = kb.admin_resellers_reply_keyboard(ui)
-    elif level == NAV_ADMIN_SETTINGS:
-        markup = kb.admin_settings_reply_keyboard(ui)
-    elif level == NAV_ADMIN_BACKUP:
-        markup = kb.admin_backup_reply_keyboard(ui)
-    elif level == NAV_ADMIN_BROADCAST:
-        markup = kb.admin_broadcast_reply_keyboard(ui)
-    elif level == NAV_ADMIN_PLANS_AUDIENCE:
-        markup = kb.admin_plans_audience_reply_keyboard(ui)
-    elif level == NAV_ADMIN_PLANS_KIND:
-        data = await state.get_data() if state is not None else {}
-        aud = str(data.get("_adm_plans_aud") or "users")
-        markup = kb.admin_plans_kind_reply_keyboard(aud, ui)
-    elif level == NAV_ADMIN_PLANS_ADD_TYPE:
-        data = await state.get_data() if state is not None else {}
-        aud = str(data.get("_adm_plans_aud") or "users")
-        markup = kb.admin_plans_add_type_reply_keyboard(aud, ui)
-    elif level == NAV_ADMIN_PLANS:
-        markup = kb.admin_plans_audience_reply_keyboard(ui)
-    elif level == NAV_RESELLER:
-        markup = kb.reseller_reply_keyboard(profile, ui)
-    elif level == NAV_RESELLER_SETTINGS:
-        markup = kb.reseller_settings_reply_keyboard(ui)
-    elif level == NAV_RESELLER_PLANS:
-        markup = kb.reseller_plans_reply_keyboard(ui)
-    elif level == NAV_SERVICE:
-        markup = kb.service_actions_reply_keyboard(ui)
-    elif level == NAV_REVIEW:
-        markup = kb.review_reply_keyboard(ui)
-    elif level == NAV_PAY:
-        oid = order_id
-        if oid is None and state is not None:
-            data = await state.get_data()
-            oid = data.get(PAY_ORDER_ID)
-        markup = kb.pay_reply_keyboard(int(oid or 0), ui)
-    elif level == NAV_TOPUP_PAY:
-        markup = kb.topup_pay_reply_keyboard(ui)
-    elif level == NAV_USER_PREVIEW:
-        # Always customer keyboard — never leak reseller/admin hub buttons
+    if level == NAV_USER_PREVIEW:
+        # Customer keyboard only — never leak admin/reseller hub buttons
         from app.db.models import Role as _Role
 
         has = await user_has_services(session, db_user.id)
+        exit_action = (
+            kb.REPLY_ACTION_RESELLER if is_reseller_bot else kb.REPLY_ACTION_ADMIN
+        )
+        from app.services.users import on as _setting_on
+
+        preview_apply = (
+            not is_reseller_bot
+            and _setting_on(ui.get("show_reseller_apply"))
+            and "reseller_apply" in set(kb._menu_order(ui))
+        )
         markup = kb.main_reply_keyboard(
             _Role.USER.value,
             has_services=has,
             ui=ui,
             as_user=True,
+            show_reseller_apply=preview_apply,
+            preview_exit_action=exit_action,
         )
+    elif level == NAV_REVIEW:
+        # Approve/reject still uses a dedicated reply keyboard (FSM entity selected)
+        markup = kb.review_reply_keyboard(ui)
     else:
         markup, ui, _ = await build_main_reply_keyboard(
             session,
@@ -513,6 +438,9 @@ async def show_nav_keyboard(
     return ui
 
 
+ORDER_PAY_PROMPT = "روش پرداخت را انتخاب کنید:"
+
+
 async def present_order_pay(
     message: Message,
     session: AsyncSession,
@@ -520,20 +448,47 @@ async def present_order_pay(
     order_id: int,
     *,
     state: FSMContext | None = None,
-    text: str = "روش پرداخت را از کیبورد پایین انتخاب کنید:",
-    is_reseller_bot: bool = False,
-    reseller_owner_id: int | None = None,
+    text: str = ORDER_PAY_PROMPT,
+    summary: str | None = None,
+    is_reseller_bot: bool,
+    reseller_owner_id: int | None,
+    heal_main: bool = False,
 ) -> None:
-    """Show order payment methods on the reply keyboard (not inline)."""
-    await show_nav_keyboard(
+    """Show order summary + payment methods in one inline panel (Option B).
+
+    Pass ``summary`` (HTML order id / plan / amount). The panel text is
+    ``summary + prompt`` so a prior edit of the same message is never needed.
+    ``heal_main`` restores the stable main ReplyKeyboard after a free-text
+    step (e.g. discount code) that left ``cancel_reply`` attached.
+    """
+    from app.bot.nav_inline import present_inline_only
+
+    ui = await get_all_settings(session)
+    if state is not None:
+        await set_nav_level(state, NAV_PAY, push=True)
+        await state.update_data(**{PAY_ORDER_ID: int(order_id)})
+
+    prompt = (text or ORDER_PAY_PROMPT).strip() or ORDER_PAY_PROMPT
+    if summary and summary.strip():
+        body = f"{summary.strip()}\n\n{prompt}"
+    else:
+        body = prompt
+    await present_inline_only(
         message,
-        session,
-        db_user,
-        NAV_PAY,
-        text=text,
-        state=state,
-        push=True,
-        is_reseller_bot=is_reseller_bot,
-        reseller_owner_id=reseller_owner_id,
-        order_id=order_id,
+        text=body,
+        inline=kb.pay_methods(int(order_id), ui),
     )
+    if heal_main:
+        from app.bot.tg_utils import attach_reply_keyboard
+
+        main_kb, _, _ = await build_main_reply_keyboard(
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        )
+        await attach_reply_keyboard(
+            message,
+            main_kb,
+            text="·",
+        )

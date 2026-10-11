@@ -22,16 +22,13 @@ from app.services.users import get_all_settings
 
 router = Router(name="support")
 
-
 class SupportStates(StatesGroup):
     subject = State()
     body = State()
     reply = State()
 
-
 def _active_contacts_from_ui(ui: dict) -> list[dict]:
     return active_support_contacts(parse_support_contacts(ui.get("support_contacts")))
-
 
 @router.callback_query(F.data == "support:home")
 async def support_home(callback: CallbackQuery, session: AsyncSession):
@@ -40,35 +37,36 @@ async def support_home(callback: CallbackQuery, session: AsyncSession):
     await callback.answer()
     ui = await get_all_settings(session)
     contacts = _active_contacts_from_ui(ui)
+
+    default_support = "تیکت جدید بسازید یا تیکت‌های قبلی را ببینید."
     text, send_kw = outbound_setting_text(
-        ui.get("support_text")
-        or "از کیبورد پایین تیکت جدید بسازید یا تیکت‌های قبلی را ببینید.",
+        ui.get("support_text") or default_support,
         title="🎧 پشتیبانی",
     )
     if callback.message:
-        from app.bot.tg_utils import attach_reply_keyboard
+        from app.bot.nav_inline import support_hub_keyboard
 
-        await safe_edit_text(callback.message, text, reply_markup=None, **send_kw)
-        await callback.message.answer("پشتیبانی:", reply_markup=kb.support_reply_keyboard(ui))
-        if contacts:
-            rows: list[list[InlineKeyboardButton]] = []
-            for c in contacts:
-                url = support_chat_url(c.get("telegram") or "")
-                title = c.get("title") or "پشتیبان"
-                if url:
-                    rows.append([InlineKeyboardButton(text=f"💬 گفتگو با {title}", url=url)])
-            if rows:
-                await callback.message.answer(
-                    "ارتباط مستقیم:",
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        contact_rows: list[list[InlineKeyboardButton]] = []
+        for c in contacts:
+            url = support_chat_url(c.get("telegram") or "")
+            title = c.get("title") or "پشتیبان"
+            if url:
+                contact_rows.append(
+                    [InlineKeyboardButton(text=f"💬 گفتگو با {title}", url=url)]
                 )
-                await attach_reply_keyboard(
-                    callback.message, kb.support_reply_keyboard(ui), text="⌨️ پشتیبانی"
-                )
-
+        await safe_edit_text(
+            callback.message,
+            text,
+            reply_markup=support_hub_keyboard(
+                ui, contact_rows=contact_rows or None
+            ),
+            **send_kw,
+        )
+        return
 
 @router.callback_query(F.data == "support:tickets")
 async def support_tickets_home(callback: CallbackQuery, session: AsyncSession):
+    from app.bot.nav_inline import support_hub_keyboard
     from app.services.rich_text import outbound_setting_text
 
     await callback.answer()
@@ -81,22 +79,25 @@ async def support_tickets_home(callback: CallbackQuery, session: AsyncSession):
         await safe_edit_text(
             callback.message,
             text,
-            reply_markup=None,
+            reply_markup=support_hub_keyboard(ui),
             **send_kw,
         )
-        await callback.message.answer(
-            "تیکت:",
-            reply_markup=kb.support_reply_keyboard(ui),
-        )
-
+        return
 
 @router.callback_query(F.data == "support:new")
 async def support_new(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    await state.set_state(SupportStates.subject)
-    if callback.message:
-        await callback.message.answer("موضوع تیکت را بنویسید:", reply_markup=kb.cancel_reply())
+    from app.bot.nav_input import ask_text
 
+    await callback.answer()
+    if callback.message:
+        await ask_text(
+            callback,
+            state,
+            prompt="موضوع تیکت را بنویسید:",
+            cancel_code="s_subj",
+            fsm_state=SupportStates.subject,
+            edit=True,
+        )
 
 @router.message(SupportStates.subject)
 async def support_subject(
@@ -124,9 +125,15 @@ async def support_subject(
         await message.answer("موضوع را به‌صورت متن بفرستید.")
         return
     await state.update_data(subject=subject)
-    await state.set_state(SupportStates.body)
-    await message.answer("متن پیام را بنویسید:", reply_markup=kb.cancel_reply())
+    from app.bot.nav_input import ask_text
 
+    await ask_text(
+        message,
+        state,
+        prompt="متن پیام را بنویسید:",
+        cancel_code="s_body",
+        fsm_state=SupportStates.body,
+    )
 
 @router.message(SupportStates.body)
 async def support_body(
@@ -209,17 +216,21 @@ async def support_body(
         reseller_owner_id=reseller_owner_id,
     )
 
-
 @router.callback_query(F.data == "support:list")
 async def support_list(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
+    from app.bot.nav_inline import support_hub_keyboard
+
     await callback.answer()
     tickets = await list_user_tickets(session, db_user.id)
     ui = await get_all_settings(session)
     if not tickets:
         text = "تیکتی ندارید."
         if callback.message:
-            await safe_edit_text(callback.message, text, reply_markup=None)
-            await callback.message.answer(text, reply_markup=kb.support_reply_keyboard(ui))
+            await safe_edit_text(
+                callback.message,
+                text,
+                reply_markup=support_hub_keyboard(ui),
+            )
         return
     rows = [
         [
@@ -230,15 +241,18 @@ async def support_list(callback: CallbackQuery, session: AsyncSession, db_user: 
         ]
         for t in tickets[:20]
     ]
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=ui.get("btn_back") or "⬅️ بازگشت",
+                callback_data="nv:s:home",
+            )
+        ]
+    )
     text = "📋 تیکت‌های شما:"
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
     if callback.message:
         await safe_edit_text(callback.message, text, reply_markup=markup)
-        await callback.message.answer(
-            "تیکت‌ها:",
-            reply_markup=kb.support_reply_keyboard(ui),
-        )
-
 
 @router.callback_query(F.data.startswith("support:view:"))
 async def support_view(
@@ -272,12 +286,18 @@ async def support_view(
     for m in ticket.messages[-10:]:
         who = "پشتیبانی" if m.is_staff else "شما"
         lines.append(f"<b>{who}:</b> {html.escape(m.body or '')}")
-    await state.set_state(SupportStates.reply)
     await state.update_data(ticket_id=ticket.id)
-    if callback.message:
-        await safe_edit_text(callback.message, "\n".join(lines))
-        await callback.message.answer("برای پاسخ، پیام بفرستید یا انصراف بزنید:", reply_markup=kb.cancel_reply())
+    from app.bot.nav_input import ask_text
 
+    preview = "\n".join(lines)
+    await ask_text(
+        callback,
+        state,
+        prompt=preview + "\n\nبرای پاسخ، پیام بفرستید یا انصراف بزنید:",
+        cancel_code="s_reply",
+        fsm_state=SupportStates.reply,
+        edit=True,
+    )
 
 @router.message(SupportStates.reply)
 async def support_reply(
@@ -289,8 +309,18 @@ async def support_reply(
     reseller_owner_id: int | None = None,
 ):
     from app.bot.menu_nav import restore_main_reply
+    from app.bot.nav_input import finish_text_step, try_legacy_cancel
 
     if kb.is_cancel_text(message.text):
+        if await try_legacy_cancel(
+            message,
+            state,
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        ):
+            return
         await restore_main_reply(
             message,
             session,
@@ -343,12 +373,25 @@ async def support_reply(
         )
     except Exception:
         pass
-    await restore_main_reply(
+    await finish_text_step(
         message,
-        session,
-        db_user,
+        state,
         text="پاسخ ثبت شد.",
-        state=state,
-        is_reseller_bot=is_reseller_bot,
-        reseller_owner_id=reseller_owner_id,
+        inline=None,
     )
+
+
+def _register_support_cancel_codes() -> None:
+    from app.bot.nav_input import CancelEntry, register_cancel_code
+
+    async def _reopen_support(message, session, db_user, state, **_kw):
+        from app.bot.handlers.reply_nav import open_support_home
+
+        await open_support_home(message, session, db_user, state, push=False)
+
+    register_cancel_code("s_subj", CancelEntry(reopen=_reopen_support))
+    register_cancel_code("s_body", CancelEntry(reopen=_reopen_support))
+    register_cancel_code("s_reply", CancelEntry(reopen=_reopen_support))
+
+
+_register_support_cancel_codes()

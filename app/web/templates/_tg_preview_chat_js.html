@@ -190,14 +190,7 @@
         return '<div class="tg-key-row">'+btn(it.label, it.tone, {styleId: it.styleId, focus: it.styleId === focusStyleId})+'</div>';
       }).join('');
     }
-    if (opts.submenu) {
-      html += '<div class="tg-key-row tg-key-nav">'
-        + btn(back, backTone, {styleId: 'back', focus: focusStyleId === 'back'})
-        + btn(home, homeTone, {styleId: 'home', focus: focusStyleId === 'home'})
-        + '</div>';
-    } else if (home) {
-      html += '<div class="tg-key-row tg-key-home">'+btn(home, homeTone, {styleId: 'home', focus: focusStyleId === 'home'})+'</div>';
-    }
+    // Option B: reply KB is thin level-0 only — no submenu Back/Home footer.
     keysEl.innerHTML = html;
   }
   function render(){
@@ -279,12 +272,16 @@
       const defaults = {
         shop: 'primary', services: 'primary', wallet: 'primary',
         support: 'primary', loyalty: 'success', reseller_apply: '',
+        miniapp: 'primary',
       };
-      const labels = order.filter(function(k){ return k !== 'miniapp'; }).map(function(k){
+      // Option B: Mini App on reply KB; reseller_apply on welcome/support inline
+      const labels = order.filter(function(k){
+        return k !== 'reseller_apply';
+      }).map(function(k){
         const label = map[k];
         if (!label) return null;
         const sid = styleMap[k] || k;
-        return {label: label, tone: styleTone(sid, defaults[sid] || '')};
+        return {label: label, tone: styleTone(sid, defaults[sid] || ''), styleId: sid};
       }).filter(Boolean);
       renderReplyKeys(labels);
     } else if (keysEl) {

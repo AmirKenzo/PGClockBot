@@ -23,13 +23,11 @@ from app.services.message_variables import DOMAIN_USER
 
 router = Router(name="start")
 
-
 async def _has_services(session: AsyncSession, user_id: int) -> bool:
     result = await session.execute(
         select(UserService.id).where(UserService.bot_user_id == user_id).limit(1)
     )
     return result.scalar_one_or_none() is not None
-
 
 async def render_home(
     message: Message,
@@ -44,7 +42,7 @@ async def render_home(
     effective_role: str | None = None,
 ):
     from app.services.formatting import format_message
-    from app.services.reseller_access import effective_menu_role, is_shop_owner_on_main_bot
+    from app.services.reseller_access import effective_menu_role
 
     if ui is None:
         ui = await get_all_settings(session)
@@ -66,7 +64,7 @@ async def render_home(
         from app.bot.menu_nav import build_main_reply_keyboard
 
         text, home_send_kw = outbound_setting_text(
-            "پنل مدیریت فروشگاه\nاز کیبورد پایین گزینه را انتخاب کنید.",
+            "پنل مدیریت فروشگاه\nاز منوی زیر گزینه را انتخاب کنید.",
             title_raw=ui.get("shop_title") or "کلاک",
         )
         reply_kb, ui, _ = await build_main_reply_keyboard(
@@ -86,21 +84,16 @@ async def render_home(
             reseller_owner_id=reseller_owner_id,
         )
         text, home_send_kw = outbound_setting_text(
-            "پنل مدیریت فروشگاه شما\nاز کیبورد پایین گزینه را انتخاب کنید.\n"
+            "پنل مدیریت فروشگاه شما\nاز منوی زیر گزینه را انتخاب کنید.\n"
             "برای دیدن منوی مشتری: «پیش‌نمایش منوی کاربر».",
             title_raw=ui.get("shop_title") or "فروشگاه",
         )
         reply_kb = kb.reseller_hub_main_keyboard(profile, ui)
     else:
-        show_creds = is_shop_owner_on_main_bot(db_user, is_reseller_bot=is_reseller_bot)
-        has = await _has_services(session, db_user.id)
-        owner_profile = None
-        if show_creds:
-            from app.services.resellers import get_reseller_profile
+        # Must go through build_main_reply_keyboard so reseller_apply / flags
+        # match heal/home paths (direct main_reply_keyboard defaults apply off).
+        from app.bot.menu_nav import build_main_reply_keyboard
 
-            owner_profile = await get_reseller_profile(session, int(db_user.id))
-            if owner_profile is not None and not owner_profile.is_active:
-                owner_profile = None
         welcome = ui.get("welcome_text", "")
         shop_title_raw = ui.get("shop_title", "")
         title_plain = rich_plain_text(shop_title_raw)
@@ -117,80 +110,45 @@ async def render_home(
         except Exception:
             text = format_message(title_plain or "", rich_plain_text(welcome))
             home_send_kw = {}
-        reply_kb = kb.main_reply_keyboard(
-            effective_role,
-            has_services=has,
+        reply_kb, ui, _ = await build_main_reply_keyboard(
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
             ui=ui,
-            show_reseller_creds=show_creds,
-            profile=owner_profile,
         )
 
-    mini = None
-    if not is_reseller_bot:
-        mini = kb.miniapp_inline_keyboard(ui)
-
-    from app.bot.tg_utils import attach_reply_keyboard, send_reply_keyboard_last
-
-    ahead: list[tuple[str, object]] = []
-    if mini is not None:
-        ahead.append(("📱", mini))
-
+    # Mini App is a web_app button on the main ReplyKeyboard (Option B).
     if edit:
         from aiogram.exceptions import TelegramBadRequest
 
         try:
-            # Inline «بازگشت» — update the bubble text; reply kb is re-seeded below
+            # Inline «بازگشت» — welcome text only (no inline CTAs); reply kb stays.
             await message.edit_text(text, reply_markup=None, **home_send_kw)
+            return
         except TelegramBadRequest as e:
-            if "message is not modified" not in str(e).lower():
-                if getattr(message, "photo", None):
-                    try:
-                        await message.delete()
-                    except Exception:
-                        pass
-                    # Mini (inline) first if any; welcome+reply KB must be last.
-                    await send_reply_keyboard_last(
-                        message,
-                        text,
-                        reply_kb,
-                        ahead=ahead or None,
-                        **home_send_kw,
-                    )
-                    return
+            if "message is not modified" in str(e).lower():
+                return
         except Exception:
             pass
-        # edit_text cannot set ReplyKeyboard — lasting attach AFTER any mini.
-        if mini is not None:
+        # Edit failed (e.g. can't edit) — one fallback message, never silent.
+        if getattr(message, "photo", None):
             try:
-                await message.answer("📱", reply_markup=mini)
+                await message.delete()
             except Exception:
                 pass
-        await attach_reply_keyboard(
-            message,
-            reply_kb,
-            text=ui.get("btn_menu_home") or "⌨️ منوی اصلی",
-        )
+        await message.answer(text, reply_markup=reply_kb, **home_send_kw)
         return
 
-    # Contract: reply keyboard carrier is the *last* message in this turn.
-    # Sending Mini App (inline-only) after welcome hid the custom keyboard and
-    # the 4-square menu icon on iOS when returning home from shop/submenus.
-    await send_reply_keyboard_last(
-        message,
-        text,
-        reply_kb,
-        ahead=ahead or None,
-        **home_send_kw,
-    )
+    # One message: welcome + stable main ReplyKeyboard (no inline CTAs).
+    await message.answer(text, reply_markup=reply_kb, **home_send_kw)
     _ = seed_reply_kb
-
 
 async def seed_main_reply_kb(message: Message, reply_kb, *, tip: str = "⌨️") -> None:
     from app.bot.tg_utils import attach_reply_keyboard
 
     # Always lasting — ephemeral tip-delete alone clears the menu on mobile.
     await attach_reply_keyboard(message, reply_kb, text=tip or "⌨️ منوی اصلی")
-
 
 @router.message(F.text.func(kb.is_restart_text))
 async def cmd_restart(
@@ -211,7 +169,6 @@ async def cmd_restart(
         is_reseller_bot=is_reseller_bot,
         reseller_owner_id=reseller_owner_id,
     )
-
 
 @router.message(CommandStart())
 async def cmd_start(
@@ -322,7 +279,6 @@ async def cmd_start(
         effective_role=role_for_force,
     )
 
-
 async def _handle_start_deeplink(
     message: Message,
     session: AsyncSession,
@@ -371,7 +327,15 @@ async def _handle_start_deeplink(
             ui=ui,
             effective_role=effective_role,
         )
-        await open_support_home(message, session, db_user, state, push=True)
+        await open_support_home(
+            message,
+            session,
+            db_user,
+            state,
+            push=True,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        )
         return True
 
     if key == "gift":
@@ -423,7 +387,6 @@ async def _handle_start_deeplink(
 
     return False
 
-
 async def _deeplink_renew(
     message: Message,
     session: AsyncSession,
@@ -461,13 +424,25 @@ async def _deeplink_renew(
             )
         ).scalar_one_or_none()
         if not row:
-            await open_services_list(message, session, db_user)
+            await open_services_list(
+                message,
+                session,
+                db_user,
+                is_reseller_bot=is_reseller_bot,
+                reseller_owner_id=reseller_owner_id,
+            )
             await message.answer("سرویسی برای تمدید ندارید — از فروشگاه خرید کنید.")
             return
         svc_id = int(row.id)
     svc = await session.get(UserService, int(svc_id))
     if not svc or svc.bot_user_id != db_user.id:
-        await open_services_list(message, session, db_user)
+        await open_services_list(
+            message,
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        )
         await message.answer("سرویس پیدا نشد — از لیست یکی را انتخاب کنید.")
         return
     bubble = await message.answer("🔄 تمدید سرویس…")
@@ -475,15 +450,19 @@ async def _deeplink_renew(
     try:
         await svc_renew(cb, session, db_user)
     except Exception:
+        from app.bot.menu_nav import build_main_reply_keyboard
+
+        main_kb, _, _ = await build_main_reply_keyboard(
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+            ui=ui,
+        )
         await message.answer(
             "برای تمدید از «سرویس‌های من» استفاده کنید.",
-            reply_markup=kb.main_reply_keyboard(
-                effective_role or db_user.role,
-                has_services=True,
-                ui=ui,
-            ),
+            reply_markup=main_kb,
         )
-
 
 async def _deeplink_config(
     message: Message,
@@ -520,13 +499,25 @@ async def _deeplink_config(
             )
         ).scalar_one_or_none()
         if not row:
-            await open_services_list(message, session, db_user)
+            await open_services_list(
+                message,
+                session,
+                db_user,
+                is_reseller_bot=is_reseller_bot,
+                reseller_owner_id=reseller_owner_id,
+            )
             await message.answer("سرویسی ندارید — پس از خرید، کانفیگ اینجا ارسال می‌شود.")
             return
         svc_id = int(row.id)
     svc = await session.get(UserService, int(svc_id))
     if not svc or svc.bot_user_id != db_user.id:
-        await open_services_list(message, session, db_user)
+        await open_services_list(
+            message,
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+        )
         await message.answer("سرویس پیدا نشد — از لیست یکی را انتخاب کنید.")
         return
     bubble = await message.answer("📱 ارسال کانفیگ…")
@@ -534,11 +525,19 @@ async def _deeplink_config(
     try:
         await svc_link(cb, session, db_user)
     except Exception:
+        from app.bot.menu_nav import build_main_reply_keyboard
+
+        main_kb, _, _ = await build_main_reply_keyboard(
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+            ui=ui,
+        )
         await message.answer(
             "برای دریافت لینک/QR از «سرویس‌های من» استفاده کنید.",
-            reply_markup=kb.service_actions_reply_keyboard(ui),
+            reply_markup=main_kb,
         )
-
 
 @router.callback_query(F.data == "forcejoin:nolink")
 async def cb_force_join_nolink(callback: CallbackQuery):
@@ -547,7 +546,6 @@ async def cb_force_join_nolink(callback: CallbackQuery):
         "لینک دعوت کانال در تنظیمات ذخیره نشده. ادمین باید لینک t.me/+… را وارد کند.",
         show_alert=True,
     )
-
 
 @router.callback_query(F.data == "forcejoin:check")
 async def cb_force_join_check(
@@ -649,7 +647,6 @@ async def cb_force_join_check(
             effective_role=role_for_force,
         )
 
-
 @router.callback_query(F.data == "menu:home")
 async def cb_home(
     callback: CallbackQuery,
@@ -671,31 +668,38 @@ async def cb_home(
             reseller_owner_id=reseller_owner_id,
         )
 
-
 @router.callback_query(F.data == "menu:as_user")
-async def cb_home_as_user(callback: CallbackQuery, session: AsyncSession, db_user: BotUser):
+async def cb_home_as_user(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    db_user: BotUser,
+    is_reseller_bot: bool = False,
+    reseller_owner_id: int | None = None,
+):
     """Admin preview of the customer menu (reply keyboard)."""
+    from app.bot.menu_nav import build_main_reply_keyboard
     from app.services.formatting import format_message
 
     await callback.answer()
     ui = await get_all_settings(session)
-    has = await _has_services(session, db_user.id)
     text = format_message(
         "👁 پیش‌نمایش منوی کاربر",
-        "کیبورد پایین همان منویی است که مشتری می‌بیند.",
+        "منوی زیر همان منویی است که مشتری می‌بیند.",
     )
     if callback.message:
         try:
             await callback.message.edit_text(text)
         except Exception:
             pass
-        await callback.message.answer(
-            text,
-            reply_markup=kb.main_reply_keyboard(
-                db_user.role, has_services=has, ui=ui, as_user=True
-            ),
+        markup, _, _ = await build_main_reply_keyboard(
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+            as_user=True,
+            ui=ui,
         )
-
+        await callback.message.answer(text, reply_markup=markup)
 
 @router.message(Command("menu"))
 async def cmd_menu(
@@ -715,7 +719,6 @@ async def cmd_menu(
         is_reseller_bot=is_reseller_bot,
         reseller_owner_id=reseller_owner_id,
     )
-
 
 @router.message(Command("help"))
 async def cmd_help(
@@ -745,7 +748,6 @@ async def cmd_help(
     )
     await message.answer(text, reply_markup=main_kb, **send_kw)
 
-
 @router.message(F.text.func(kb.is_cancel_text))
 async def orphan_cancel(
     message: Message,
@@ -773,7 +775,6 @@ async def orphan_cancel(
         reseller_owner_id=reseller_owner_id,
     )
 
-
 @router.callback_query(F.data == "help:guide")
 async def help_guide(callback: CallbackQuery, session: AsyncSession):
     from app.services.rich_text import outbound_setting_text, rich_plain_text
@@ -795,7 +796,6 @@ async def help_guide(callback: CallbackQuery, session: AsyncSession):
             **send_kw,
         )
 
-
 @router.callback_query(F.data == "help:faq")
 async def help_faq(callback: CallbackQuery, session: AsyncSession):
     from app.services.rich_text import outbound_setting_text
@@ -812,7 +812,6 @@ async def help_faq(callback: CallbackQuery, session: AsyncSession):
             reply_markup=kb.back_home(ui),
             **send_kw,
         )
-
 
 async def _link_subscription(
     message: Message,
@@ -895,7 +894,23 @@ async def _link_subscription(
         session.add(svc)
         await session.commit()
 
-    await message.answer(
-        format_message("✅ اتصال سرویس", service_card(info)),
-        reply_markup=kb.service_actions_reply_keyboard(ui),
-    )
+    from app.bot.nav_inline import service_card_keyboard
+    from app.bot.menu_nav import build_main_reply_keyboard
+
+    if getattr(svc, "id", None):
+        await message.answer(
+            format_message("✅ اتصال سرویس", service_card(info)),
+            reply_markup=service_card_keyboard(int(svc.id), ui),
+        )
+    else:
+        main_kb, _, _ = await build_main_reply_keyboard(
+            session,
+            db_user,
+            is_reseller_bot=is_reseller_bot,
+            reseller_owner_id=reseller_owner_id,
+            ui=ui,
+        )
+        await message.answer(
+            format_message("✅ اتصال سرویس", service_card(info)),
+            reply_markup=main_kb,
+        )

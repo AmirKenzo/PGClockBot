@@ -1,4 +1,5 @@
 {% from "macros.html" import num_stepper %}
+{% set wallet_amt = display_wallet if display_wallet is defined else (user.wallet_balance or 0) %}
 {% if flash_ok %}<div class="flash ok">{{ flash_ok }}</div>{% endif %}
 {% if flash_err %}<div class="flash err">{{ flash_err }}</div>{% endif %}
 
@@ -10,18 +11,38 @@
         <span dir="ltr" class="mono">{{ user.telegram_id }}</span>
         {% if user.username %}<span>@{{ user.username }}</span>{% endif %}
         {% if user.is_blocked %}<span class="badge blocked">مسدود</span>{% else %}<span class="badge active">فعال</span>{% endif %}
+        {% if user.is_demo %}<span class="badge neutral">دمو</span>{% endif %}
         {% set tag = color_tag_meta(user.color_tag) if color_tag_meta is defined else none %}
         {% if tag %}<span class="badge badge-risk-tag" style="--tag-color: {{ tag.hex }}">{{ tag.title_fa }}</span>{% endif %}
       </p>
     </div>
-    <div class="user-edit-wallet-pill" dir="ltr">
-      <span class="muted">کیف پول</span>
-      <strong>{{ format_toman(user.wallet_balance or 0) }}</strong>
+    <div class="user-edit-wallet-pill{% if wallet_amt > 0 %} is-positive{% elif wallet_amt < 0 %} is-negative{% endif %}"
+         dir="ltr">
+      <span class="user-edit-wallet-label muted">کیف پول</span>
+      <strong class="user-edit-wallet-amt"><span dir="ltr">{{ wallet_amt | money }}</span> تومان</strong>
     </div>
   </div>
 </section>
 
 {% set manage_user = can_manage_users if can_manage_users is defined else false %}
+{% if can_manage_demo_users %}
+<section class="edit-section">
+  <header class="edit-section-head">
+    <h3>کاربر دمو</h3>
+    <p class="muted">برای حساب‌های تست ادمین؛ سفارش‌ها، پرداخت‌ها و فعالیت‌های قبلی و جدید از آمار و گزارش‌های مالی کنار گذاشته می‌شوند. سوابق و موجودی کیف پول حفظ می‌شوند. با غیرفعال کردن دمو، سوابق دوباره در گزارش‌ها محاسبه می‌شوند.</p>
+  </header>
+  <form method="post" action="/users/{{ user.id }}/demo" class="form-stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label class="form-field">وضعیت کاربر
+      <select name="is_demo" class="select-block">
+        <option value="0" {% if not user.is_demo %}selected{% endif %}>عادی — محاسبه در گزارش‌ها</option>
+        <option value="1" {% if user.is_demo %}selected{% endif %}>دمو — حذف از محاسبات گزارش‌ها</option>
+      </select>
+    </label>
+    <div class="actions"><button class="btn" type="submit">ذخیره وضعیت دمو</button></div>
+  </form>
+</section>
+{% endif %}
 <section class="edit-section">
   <header class="edit-section-head">
     <h3>تگ ریسک</h3>
@@ -78,23 +99,30 @@
 
 <section class="edit-section">
   <header class="edit-section-head">
-    <h3>افزایش کیف پول</h3>
-    <p class="muted">به موجودی فروشگاهی اضافه می‌شود و در ربات هم دیده می‌شود.</p>
+    <h3>تنظیم کیف پول</h3>
+    <p class="muted">مبلغ را وارد کنید، سپس افزایش یا کاهش را بزنید. موجودی منفی مجاز نیست.</p>
   </header>
   <form method="post" action="/users/{{ user.id }}/wallet-credit" class="form-stack"
-        data-confirm="مبلغ به کیف پول این کاربر اضافه شود؟"
-        data-confirm-title="تأیید شارژ کیف پول"
-        data-confirm-label="شارژ">
+        data-confirm="موجودی کیف پول این کاربر مطابق مبلغ و نوع انتخاب‌شده تغییر کند؟"
+        data-confirm-title="تأیید تنظیم کیف پول"
+        data-confirm-label="اعمال">
     <div class="user-edit-fields">
       <label class="form-field">مبلغ (تومان)
-        <input name="amount" type="number" min="1000" step="1000" required placeholder="مثلاً ۵۰۰۰۰" inputmode="numeric" />
+        <input name="amount" type="number" data-money min="1000" step="1000" required placeholder="مثلاً ۵۰,۰۰۰" inputmode="numeric" />
       </label>
+      <div class="wallet-adjust-modes" role="group" aria-label="نوع تنظیم کیف پول">
+        <button class="wallet-mode-btn wallet-mode-btn--debit" type="submit" name="mode" value="debit">
+          <span class="wallet-mode-swatch" aria-hidden="true"></span>
+          <span class="wallet-mode-label">کاهش</span>
+        </button>
+        <button class="wallet-mode-btn wallet-mode-btn--credit" type="submit" name="mode" value="credit">
+          <span class="wallet-mode-swatch" aria-hidden="true"></span>
+          <span class="wallet-mode-label">افزایش</span>
+        </button>
+      </div>
       <label class="form-field">یادداشت
         <input name="note" type="text" maxlength="120" placeholder="اختیاری" />
       </label>
-    </div>
-    <div class="actions user-edit-actions">
-      <button class="btn" type="submit">شارژ کیف پول</button>
     </div>
   </form>
 </section>
@@ -236,12 +264,12 @@
       {% for tx in wallet_txs %}
       <li class="wallet-tx-item">
         <div class="wallet-tx-main">
-          <span class="mono wallet-tx-amount {% if tx.amount < 0 %}is-debit{% else %}is-credit{% endif %}" dir="ltr">{{ tx.amount }}</span>
+          <span class="mono wallet-tx-amount {% if tx.amount < 0 %}is-debit{% else %}is-credit{% endif %}" dir="ltr">{{ tx.amount | money }}</span>
           <span class="muted wallet-tx-reason">{{ tx.reason or '—' }}</span>
         </div>
         <div class="wallet-tx-side">
           <span class="mono muted">#{{ tx.id }}</span>
-          <span>{{ format_toman(tx.balance_after) }}</span>
+          <span><span dir="ltr">{{ (tx.balance_after) | money }}</span> تومان</span>
         </div>
       </li>
       {% endfor %}
@@ -256,14 +284,19 @@
     <h3>حذف کاربر</h3>
     <p class="muted">کاربر بات و تمام سفارش‌ها، سرویس‌ها، پرداخت‌ها و تیکت‌های مرتبط حذف می‌شوند. برگشت‌ناپذیر است. اگر دوباره به ربات پیام بدهد، حساب جدید (خالی) برای همان تلگرام ساخته می‌شود.</p>
   </header>
-  {% if (user.wallet_balance or 0) > 0 %}
-  <div class="flash warn">موجودی کیف پول: {{ user.wallet_balance | num }} تومان — با حذف از بین می‌رود.</div>
+  {% if wallet_amt > 0 %}
+  <div class="flash warn user-edit-wallet-delete-warn">
+    <div class="flash-copy">
+      <strong class="user-edit-wallet-delete-warn-amt">موجودی کیف پول: <span dir="ltr">{{ wallet_amt | money }}</span> تومان</strong>
+      <span class="user-edit-wallet-delete-warn-note">با حذف کاربر این موجودی از بین می‌رود.</span>
+    </div>
+  </div>
   {% endif %}
   <form method="post" action="/users/{{ user.id }}/delete" class="form-stack"
-        data-confirm="{% if (user.wallet_balance or 0) > 0 %}هشدار: موجودی کیف پول {{ user.wallet_balance | num }} تومان از بین می‌رود. {% endif %}کاربر و تمام سفارش‌ها، سرویس‌ها، پرداخت‌ها و تیکت‌های مرتبط کامل حذف شوند؟ این عمل برگشت‌ناپذیر است. توجه: اگر دوباره به ربات پیام بدهد، حساب جدید (خالی) برای همان تلگرام ساخته می‌شود."
+        data-confirm="{% if wallet_amt > 0 %}هشدار: موجودی کیف پول {{ wallet_amt | money }} تومان از بین می‌رود. {% endif %}کاربر و تمام سفارش‌ها، سرویس‌ها، پرداخت‌ها و تیکت‌های مرتبط کامل حذف شوند؟ این عمل برگشت‌ناپذیر است. توجه: اگر دوباره به ربات پیام بدهد، حساب جدید (خالی) برای همان تلگرام ساخته می‌شود."
         data-confirm-title="تأیید حذف کاربر"
         data-confirm-danger="1"
-        {% if (user.wallet_balance or 0) > 0 %}data-confirm-warn="1"{% endif %}
+        {% if wallet_amt > 0 %}data-confirm-warn="1"{% endif %}
         data-confirm-reason="1"
         data-confirm-reason-label="علت حذف"
         data-confirm-reason-name="reason"
