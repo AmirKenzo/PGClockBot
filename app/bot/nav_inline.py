@@ -940,7 +940,10 @@ def admin_settings_hub_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup:
                 style=_style(ui, key, fallback="primary"),
             )
         )
-    return _pack_hub_keyboard(buttons, ui, back_callback="nv:adm:system")
+    markup = _pack_hub_keyboard(buttons, ui, back_callback="nv:adm:system")
+    search_row = [_ikb("🔍 جستجو در تنظیمات", callback_data="adm:st:find", ui=ui)]
+    markup.inline_keyboard.insert(0, search_row)
+    return markup
 
 
 def admin_backup_hub_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup:

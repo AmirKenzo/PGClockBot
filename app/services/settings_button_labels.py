@@ -26,6 +26,16 @@ PLATFORM_ONLY_BTN_KEYS: frozenset[str] = frozenset(
         "btn_adm_settings",
         "btn_adm_broadcast",
         "btn_adm_preview",
+        "btn_adm_hub_ops",
+        "btn_adm_hub_people",
+        "btn_adm_hub_product",
+        "btn_adm_hub_system",
+        "btn_adm_dash",
+        "btn_adm_reports",
+        "btn_adm_resellers",
+        "btn_adm_loyalty",
+        "btn_adm_backup",
+        "btn_adm_exit_preview",
     }
 )
 
@@ -94,6 +104,37 @@ BTN_ADMIN_SYS: list[Field] = [
     ("btn_adm_broadcast", "پیام گروهی", "text"),
     ("btn_adm_preview", "پیش‌نمایش کاربر", "text"),
 ]
+
+BTN_STORE_EXTRA: list[Field] = [
+    ("btn_buy_continue", "ادامه خرید", "text"),
+    ("btn_miniapp", "مینی‌اپ", "text"),
+]
+
+BTN_ADMIN_HUBS: list[Field] = [
+    ("btn_adm_hub_ops", "گروه عملیات روزانه", "text"),
+    ("btn_adm_hub_people", "گروه افراد", "text"),
+    ("btn_adm_hub_product", "گروه محصول و PG", "text"),
+    ("btn_adm_hub_system", "گروه سیستم", "text"),
+]
+
+BTN_ADMIN_HUB_ITEMS: list[Field] = [
+    ("btn_adm_dash", "داشبورد", "text"),
+    ("btn_adm_reports", "گزارشات", "text"),
+    ("btn_adm_resellers", "نمایندگان", "text"),
+    ("btn_adm_loyalty", "باشگاه (ادمین)", "text"),
+    ("btn_adm_backup", "بکاپ / ریستور", "text"),
+    ("btn_adm_exit_preview", "خروج از پیش‌نمایش", "text"),
+]
+
+
+def appearance_button_subs() -> list[tuple]:
+    """Owner-only button labels that no other settings screen exposes."""
+    return [
+        ("btn_store_extra", "دکمه‌های خرید و مینی‌اپ", BTN_STORE_EXTRA),
+        ("btn_adm_hubs", "دکمه‌های ادمین — گروه‌ها", BTN_ADMIN_HUBS),
+        ("btn_adm_items", "دکمه‌های ادمین — بخش‌ها", BTN_ADMIN_HUB_ITEMS),
+    ]
+
 
 # Shared pay-method button labels (attached beside each method screen).
 BTN_PAY_WALLET_DISCOUNT: list[Field] = [
