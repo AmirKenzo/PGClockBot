@@ -236,11 +236,13 @@ class PanelReadTests(unittest.IsolatedAsyncioTestCase):
         client._login_password = "test-password"
         await client._ensure_safe_target()
 
-        async def slow(*args: Any, **kwargs: Any) -> httpx.Response:
+        async def slow(request: httpx.Request) -> httpx.Response:
             await asyncio.sleep(1)
             return httpx.Response(200, json={"access_token": "new-token"})
 
-        with patch.object(httpx.AsyncClient, "request", new=AsyncMock(side_effect=slow)) as send:
+        send = AsyncMock(side_effect=slow)
+        probe = httpx.AsyncClient(base_url=client.base_url, transport=httpx.MockTransport(send))
+        with patch("app.services.pasarguard.httpx.AsyncClient", return_value=probe):
             with resilience.web_read_budget(seconds=0.02):
                 with self.assertRaises(resilience.PgReadUnavailable):
                     await client.ensure_token()
