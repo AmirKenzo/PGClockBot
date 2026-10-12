@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -78,6 +79,7 @@ from app.services.security_policy import (
 )
 from app.services.updates import local_version
 from app.services.message_variables import template_variable_specs
+from app.services.panel_assets import get_panel_asset_cache_key
 from app.services.users import (
     SETTINGS_DOMAIN_REDIRECTS,
     SETTING_GROUPS,
@@ -99,6 +101,7 @@ from app.services.web_auth import (
 )
 from app.api.home_pages import register_home_pages
 from app.api.pg_pages import register_pg_pages
+from app.api.panel_connection import PanelConnectionMiddleware, finish_panel_authentication
 from app.api.login_guard import (
     client_ip as _client_ip,
     login_blocked as _login_blocked,
@@ -120,6 +123,8 @@ templates.env.filters["expire"] = format_expire_short
 templates.env.filters["order_status"] = order_status_fa
 templates.env.filters["ticket_status"] = ticket_status_fa
 templates.env.globals["app_version"] = local_version()
+templates.env.globals["panel_script_cache_key"] = get_panel_asset_cache_key("panel.js")
+templates.env.globals["panel_widget_cache_key"] = get_panel_asset_cache_key("panel_widget_request.js")
 try:
     from app.services.update_channel import badge_context as _badge_context_boot
 
@@ -739,6 +744,7 @@ def create_api_app(lifespan=None) -> FastAPI:
         from app.services.db_safe import recover_session
 
         await recover_session(session)
+        finish_panel_authentication(request)
         return user
 
     async def require_admin(
@@ -1730,7 +1736,7 @@ def create_api_app(lifespan=None) -> FastAPI:
         if not base:
             return await fail("آدرس پاسارگارد الزامی است.")
         try:
-            base = assert_safe_pg_base_url(base)
+            base = await asyncio.to_thread(assert_safe_pg_base_url, base)
         except UnsafePgUrlError as exc:
             return await fail(str(exc))
         if not (pg_username or "").strip():
@@ -1938,7 +1944,10 @@ def create_api_app(lifespan=None) -> FastAPI:
         pg_credentials_ready = False
         pg_staff_id = None
 
-        if verify_web_admin(u, p):
+        # Bind the login to the credential version before yielding for hashing;
+        # a concurrent password change must not issue a session for the old password.
+        owner_session_version = await asyncio.to_thread(admin_session_version)
+        if await asyncio.to_thread(verify_web_admin, u, p):
             role = "admin"
             display = load_web_admin()["username"]
         else:
@@ -1962,7 +1971,7 @@ def create_api_app(lifespan=None) -> FastAPI:
             row = result.first()
             if row:
                 ru, profile = row
-                if verify_password_hash(p, profile.web_password_hash):
+                if await asyncio.to_thread(verify_password_hash, p, profile.web_password_hash):
                     if not profile.is_active:
                         for k in limit_keys:
                             _login_fail(k)
@@ -2057,7 +2066,7 @@ def create_api_app(lifespan=None) -> FastAPI:
                 )
 
                 staff_row = await access_by_web_username(session, u.strip().lower())
-                if staff_row and verify_password_hash(p, staff_row.web_password_hash):
+                if staff_row and await asyncio.to_thread(verify_password_hash, p, staff_row.web_password_hash):
                     if not staff_row.is_active:
                         for k in limit_keys:
                             _login_fail(k)
@@ -2261,7 +2270,7 @@ def create_api_app(lifespan=None) -> FastAPI:
             "pg_permissions": pg_permissions,
         }
         if role == "admin":
-            payload["sv"] = admin_session_version()
+            payload["sv"] = owner_session_version
             payload["web_owner"] = True
         if bot_user_id is not None:
             payload["bot_user_id"] = bot_user_id
@@ -2369,7 +2378,6 @@ def create_api_app(lifespan=None) -> FastAPI:
         host_gauges = None
 
         if is_platform_admin(staff):
-            import asyncio
 
             from app.services.db_safe import rollback_quiet
             from app.services.home_overview import bot_panel_summary
@@ -2531,7 +2539,6 @@ def create_api_app(lifespan=None) -> FastAPI:
     @app.get("/dashboard/metrics")
     async def dashboard_host_metrics_json(staff: dict = Depends(require_admin)):
         """Local bot-server CPU/RAM for the bot overview gauges (platform admin only)."""
-        import asyncio
 
         from fastapi.responses import JSONResponse
 
@@ -4652,7 +4659,7 @@ def create_api_app(lifespan=None) -> FastAPI:
                 return pg_result(False, "عملیات نامعتبر است", code=400)
             current = current_setup_values()
             try:
-                base = assert_safe_pg_base_url(str(form.get("PG_BASE_URL") or ""))
+                base = await asyncio.to_thread(assert_safe_pg_base_url, str(form.get("PG_BASE_URL") or ""))
                 sub_path = normalize_pg_subscription_path(str(form.get("PG_SUBSCRIPTION_PATH") or "/sub"))
             except (ValueError, UnsafePgUrlError) as exc:
                 return pg_result(False, str(exc), code=400)
@@ -4681,7 +4688,6 @@ def create_api_app(lifespan=None) -> FastAPI:
                     code=400,
                 )
             if action == "test":
-                import asyncio
 
                 try:
                     caps = await asyncio.wait_for(resolve_platform_pg_capabilities(
@@ -4822,7 +4828,7 @@ def create_api_app(lifespan=None) -> FastAPI:
             pg_base = normalize_pg_base_url(str(form.get("PG_BASE_URL") or "").strip())
             if pg_base:
                 try:
-                    pg_base = assert_safe_pg_base_url(pg_base)
+                    pg_base = await asyncio.to_thread(assert_safe_pg_base_url, pg_base)
                 except UnsafePgUrlError as exc:
                     return _bot_err(str(exc))
             pg_user = str(form.get("PG_USERNAME") or "").strip()
@@ -5262,5 +5268,6 @@ def create_api_app(lifespan=None) -> FastAPI:
     # (update button, backup restore, bot settings, … all look like “click does nothing”).
     from starlette.middleware.gzip import GZipMiddleware
 
+    app.add_middleware(PanelConnectionMiddleware)
     app.add_middleware(GZipMiddleware, minimum_size=400)
     return app

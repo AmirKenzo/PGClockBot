@@ -111,3 +111,6 @@ tests/test_v4_0_8_security_audit_sanitize.py
 tests/test_v4_1_1_reseller_pg_role_access.py
 tests/test_demo_users.py
 tests/test_web_list_inputs.py
+# Web read deadlines, outage gates, credential isolation and mutation outcomes.
+tests/test_panel_connection_resilience.py
+tests/test_panel_asset_cache.py

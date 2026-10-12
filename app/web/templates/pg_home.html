@@ -42,8 +42,7 @@
 
 {% if widgets_deferred %}
 {% include "_panel_widgets_defer.html" %}
-{# Empty mount — matte clock veil covers until /pg/body swaps in. #}
-<div id="pg-dash" class="pg-dash" aria-busy="true"></div>
+{% include "_pg_dash_body.html" %}
 {% else %}
 {% include "_pg_dash_body.html" %}
 {% endif %}

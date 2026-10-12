@@ -29,6 +29,8 @@ from app.db.models import (
     UserService,
 )
 from app.services.demo_users import non_demo_customer
+from app.services.pasarguard import is_pg_permission_denied
+from app.services.pg_read_resilience import PG_READ_UNAVAILABLE_MESSAGE, PgReadUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -110,8 +112,12 @@ async def check_pg_connection(*, reseller_user_id: int | None = None, session: A
         stats = None
         try:
             stats = await pg.get_system_stats()
-        except Exception:
-            stats = None
+        except Exception as exc:
+            if not is_pg_permission_denied(exc):
+                raise
+            # Limited accounts cannot read server stats; a live self-read still
+            # verifies connectivity. A stored token alone does not prove it.
+            await pg.get_current_admin()
         version = None
         if isinstance(stats, dict):
             version = stats.get("version")
@@ -120,6 +126,14 @@ async def check_pg_connection(*, reseller_user_id: int | None = None, session: A
             "error": None,
             "version": str(version) if version else None,
             "base_url": getattr(pg, "base_url", None),
+        }
+    except PgReadUnavailable:
+        return {
+            "ok": None,
+            "unchecked": True,
+            "error": PG_READ_UNAVAILABLE_MESSAGE,
+            "version": None,
+            "base_url": None,
         }
     except Exception:
         return {
