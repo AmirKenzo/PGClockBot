@@ -189,7 +189,13 @@ async def _render_nodes_list(callback: CallbackQuery, gate) -> None:
         items = await list_scoped_pg_objects(gate, kind="nodes")
     except Exception as e:
         if callback.message:
-            await safe_edit_text(callback.message, f"خطا: {_err_msg(e)}", reply_markup=None)
+            await safe_edit_text(
+                callback.message,
+                f"خطا: {_err_msg(e)}",
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[[kb.back_button(None, "nv:adm:pg")]]
+                ),
+            )
         return
     if not isinstance(items, list):
         items = []

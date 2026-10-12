@@ -34,6 +34,10 @@ from app.services.pasarguard import (
 from app.services.pg_quota import PgQuotaError, assert_can_create_user
 from app.services.redact import user_safe_error
 
+_USERS_BACK = InlineKeyboardMarkup(
+    inline_keyboard=[[kb.back_button(None, "adm:pg:users")]]
+)
+
 router = Router(name="admin_pg_users")
 
 def _err_msg(exc: Exception) -> str:
@@ -304,18 +308,18 @@ async def _show_user_card(
         if pg is None:
             text = format_message("❌ خطا", "اجازه این عمل را ندارید")
             if edit:
-                await safe_edit_text(target, text, reply_markup=None)
+                await safe_edit_text(target, text, reply_markup=_USERS_BACK)
             else:
-                await target.answer(text, reply_markup=None)
+                await target.answer(text, reply_markup=_USERS_BACK)
             return
         try:
             user = await pg.get_user_by_id(uid)
         except Exception as e:
             text = format_message("❌ خطا", user_safe_error(e))
             if edit:
-                await safe_edit_text(target, text, reply_markup=None)
+                await safe_edit_text(target, text, reply_markup=_USERS_BACK)
             else:
-                await target.answer(text, reply_markup=None)
+                await target.answer(text, reply_markup=_USERS_BACK)
             return
     text = service_card(user if isinstance(user, dict) else {})
     if notice:
@@ -422,7 +426,12 @@ async def adm_pg_group_hint(
         ]
     )
     if callback.message:
-        await callback.message.edit_text("\n".join(lines)[:3900], reply_markup=None)
+        await callback.message.edit_text(
+            "\n".join(lines)[:3900],
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[kb.back_button(None, "nv:adm:pg")]]
+            ),
+        )
 
 @router.callback_query(F.data == "adm:pg:template")
 async def adm_pg_template_hint(
@@ -477,7 +486,12 @@ async def adm_pg_template_hint(
         ]
     )
     if callback.message:
-        await callback.message.edit_text("\n".join(lines)[:3900], reply_markup=None)
+        await callback.message.edit_text(
+            "\n".join(lines)[:3900],
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[kb.back_button(None, "nv:adm:pg")]]
+            ),
+        )
 
 # ----- list / search -----
 

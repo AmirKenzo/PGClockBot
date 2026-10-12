@@ -36,6 +36,10 @@ from app.bot.tg_utils import safe_edit_text
 from app.services.users import get_all_settings
 from app.services.redact import user_safe_error
 
+_RESELLER_HOME_BACK = InlineKeyboardMarkup(
+    inline_keyboard=[[kb.back_button(None, "nv:res:home")]]
+)
+
 router = Router(name="reseller")
 
 
@@ -720,7 +724,7 @@ async def res_stats(
         f"ادمین PG: <code>{profile.pg_admin_username or '—'}</code>"
     )
     if callback.message:
-        await safe_edit_text(callback.message, text, reply_markup=None)
+        await safe_edit_text(callback.message, text, reply_markup=_RESELLER_HOME_BACK)
 
 
 @router.callback_query(F.data == "res:billing")
@@ -778,7 +782,9 @@ async def res_billing(
                 f"• {tx.kind}: {sign}{format_toman(tx.amount, get_settings().currency)}"
             )
     if callback.message:
-        await safe_edit_text(callback.message, "\n".join(lines), reply_markup=None)
+        await safe_edit_text(
+            callback.message, "\n".join(lines), reply_markup=_RESELLER_HOME_BACK
+        )
 
 
 @router.callback_query(F.data == "res:orders")
