@@ -43,16 +43,13 @@ class RemainderChromeSourceGuards(unittest.TestCase):
             _last(src, "attach_reply_keyboard"),
         )
 
-    def test_admin_resellers_hub_reattaches_after_mini(self):
+    def test_admin_resellers_hub_is_inline_panel(self):
         from app.bot.handlers import reply_nav
 
         src = inspect.getsource(reply_nav.open_admin_resellers_hub)
-        self.assertIn("attach_reply_keyboard", src)
-        self.assertIn("admin_resellers_reply_keyboard", src)
-        self.assertLess(
-            src.index("miniapp_inline_keyboard"),
-            _last(src, "attach_reply_keyboard"),
-        )
+        self.assertIn("admin_resellers_hub_keyboard", src)
+        self.assertIn("present_nav_panel", src)
+        self.assertNotIn("miniapp_inline_keyboard", src)
 
     def test_admin_backup_hub_reattaches_after_files(self):
         from app.bot.handlers import reply_nav

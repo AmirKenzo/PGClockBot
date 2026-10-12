@@ -92,7 +92,7 @@ class BotSettingsHubIATests(unittest.TestCase):
             if str(f[0]).startswith("btn_")
         }
         self.assertIn("btn_reseller_apply", admin_btn_keys)
-        self.assertIn("btn_miniapp", admin_btn_keys)
+        self.assertNotIn("btn_miniapp", admin_btn_keys)
         self.assertIn("btn_wholesale", admin_btn_keys)
 
         res_btn_keys = {

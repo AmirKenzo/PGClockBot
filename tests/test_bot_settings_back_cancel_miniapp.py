@@ -1,56 +1,28 @@
-"""Settings Back hub + silent cancel heal (+ miniapp pack stubs)."""
+"""Settings Back hub + silent cancel heal (+ miniapp Open-only guards)."""
 
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from aiogram.types import MessageEntity
-
-from app.services.rich_text import pack_rich_text
+ROOT = Path(__file__).resolve().parents[1]
 
 
-class MiniappDeprecatedReplyPathTests(unittest.TestCase):
-    def test_deprecated_miniapp_reply_button_returns_none(self):
-        from app.bot.nav_inline import miniapp_reply_button
+class MiniappOpenOnlyPathTests(unittest.TestCase):
+    def test_no_deprecated_miniapp_reply_or_inline_helpers(self):
+        import app.bot.keyboards as kb
+        import app.bot.nav_inline as nav
 
-        self.assertIsNone(miniapp_reply_button({"menu_order": "miniapp"}))
+        self.assertFalse(hasattr(nav, "miniapp_reply_button"))
+        self.assertFalse(hasattr(kb, "miniapp_inline_keyboard"))
+        self.assertFalse(hasattr(kb, "miniapp_reseller_keyboard"))
 
-    def test_inline_web_app_omits_icon_custom_emoji(self):
-        from app.bot.keyboards import miniapp_inline_keyboard
-
-        body = "📱 مینی‌اپ"
-        packed = pack_rich_text(
-            body,
-            [
-                MessageEntity(
-                    type="custom_emoji",
-                    offset=0,
-                    length=2,
-                    custom_emoji_id="42",
-                )
-            ],
-        )
-        ui = {"btn_miniapp": packed, "menu_order": "shop"}
-        with (
-            patch(
-                "app.services.users.current_shop_reseller_id",
-                return_value=None,
-            ),
-            patch(
-                "app.bot.keyboards.get_settings",
-                return_value=MagicMock(
-                    miniapp_enabled=True,
-                    miniapp_url="https://example.com/app",
-                    miniapp_deep_url=lambda view="": "https://example.com/app",
-                ),
-            ),
-        ):
-            markup = miniapp_inline_keyboard(ui)
-        self.assertIsNotNone(markup)
-        btn = markup.inline_keyboard[0][0]
-        self.assertIsNone(getattr(btn, "icon_custom_emoji_id", None))
-        self.assertIsNotNone(btn.web_app)
+    def test_legacy_reply_miniapp_hints_open(self):
+        src = (ROOT / "app/bot/handlers/reply_nav.py").read_text(encoding="utf-8")
+        self.assertIn("if action == kb.REPLY_ACTION_MINIAPP:", src)
+        self.assertIn("مینی‌اپ را از دکمهٔ Open کنار کادر پیام باز کنید.", src)
+        self.assertNotIn("miniapp_inline_keyboard", src)
 
 
 class SettingsHubBackTests(unittest.IsolatedAsyncioTestCase):

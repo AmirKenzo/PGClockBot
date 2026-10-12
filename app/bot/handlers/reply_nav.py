@@ -2681,17 +2681,9 @@ async def reply_main_nav(
             return
 
     if action == kb.REPLY_ACTION_MINIAPP:
-        # ReplyKeyboard web_app launches have empty initData (Telegram design).
-        # Send an inline web_app button — same path as MenuButton.
-        from app.bot.keyboards import miniapp_inline_keyboard
-
-        markup = miniapp_inline_keyboard(ui)
-        if not markup:
-            await message.answer("مینی‌اپ الان در دسترس نیست.")
-            return
+        # Legacy ReplyKeyboard «مینی‌اپ» label — Mini App is MenuButton Open only.
         await message.answer(
-            "برای ورود با حساب تلگرام، دکمه زیر را بزنید:",
-            reply_markup=markup,
+            "مینی‌اپ را از دکمهٔ Open کنار کادر پیام باز کنید."
         )
         return
 

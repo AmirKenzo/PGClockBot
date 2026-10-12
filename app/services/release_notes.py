@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.13": [
+        "مینی‌اپ: فقط دکمهٔ Open کنار کادر پیام — بدون اینلاین خوش‌آمد و بدون دکمه کیبورد پایین",
+        "خوش‌آمد /start دوباره کیبورد چهارخانهٔ منوی اصلی را روی همان پیام می‌گذارد",
+        "ریستور: restore/pre-v0.3.13-v0.3.12",
+    ],
     "0.3.12": [
         "آپدیت: سازگاری Python 3.10 — تب آپدیت دیگر با asyncio.timeout کرش ۵۰۰ نمی‌دهد؛ بررسی مایگریشن با wait_for",
         "آپدیت: اگر بررسی کانال/مایگریشن خطا بدهد، تب آپدیت با پیام هشدار باز می‌ماند (نه صفحه ۵۰۰)",

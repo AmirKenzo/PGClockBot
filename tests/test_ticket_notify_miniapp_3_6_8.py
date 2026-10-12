@@ -58,20 +58,19 @@ class TicketNotifyDeliveryTests(unittest.TestCase):
         )
 
 class MiniappShopSuppressionTests(unittest.TestCase):
-    def test_start_skips_miniapp_on_shop(self):
+    def test_start_welcome_is_reply_kb_open_only(self):
         src = (ROOT / "app/bot/handlers/start.py").read_text(encoding="utf-8")
         chunk = src.split("async def render_home")[1].split("async def ")[0]
-        # Platform bot: welcome carries mini inline; shop bots never.
-        self.assertIn("if not is_reseller_bot:", chunk)
-        self.assertNotIn('effective_role not in {"admin", "reseller"}', chunk)
-        self.assertIn("miniapp_inline_keyboard", chunk)
-        self.assertIn("reply_markup=mini_markup", chunk)
+        # Welcome always carries ReplyKeyboard; Mini App is MenuButton Open only.
+        self.assertNotIn("miniapp_inline_keyboard", chunk)
+        self.assertNotIn("mini_markup", chunk)
+        self.assertIn("reply_markup=reply_kb", chunk)
         self.assertNotIn("send_reply_keyboard_last", chunk)
 
-    def test_keyboard_refuses_shop_context(self):
+    def test_no_inline_webapp_keyboard_helper(self):
         src = (ROOT / "app/bot/keyboards.py").read_text(encoding="utf-8")
-        chunk = src.split("def miniapp_inline_keyboard")[1].split("\ndef ")[0]
-        self.assertIn("current_shop_reseller_id", chunk)
+        self.assertNotIn("def miniapp_inline_keyboard", src)
+        self.assertNotIn("WebAppInfo", src)
 
     def test_shop_settings_strip_miniapp(self):
         src = (ROOT / "app/services/users.py").read_text(encoding="utf-8")
@@ -85,6 +84,11 @@ class MiniappShopSuppressionTests(unittest.TestCase):
         # "referral" menu slot was later renamed to "loyalty" (points program).
         self.assertIn("shop,services,wallet,support,loyalty", chunk)
         self.assertNotIn("miniapp", chunk.split("value =")[1].split("\n")[0])
+
+    def test_menu_button_open_preserved(self):
+        src = (ROOT / "app/bot/chat_menu.py").read_text(encoding="utf-8")
+        self.assertIn("MenuButtonWebApp", src)
+        self.assertIn("sync_telegram_menu_button", src)
 
 
 if __name__ == "__main__":
