@@ -2127,12 +2127,13 @@ async def handle_back(
             reseller_owner_id=reseller_owner_id,
         )
         return
-    if level == nav.NAV_USER_PREVIEW:
+    if level == nav.NAV_USER_PREVIEW or await nav.is_user_preview_active(state):
         # Back / Home from preview exits to the staff panel (same as exit button).
         from app.bot.nav_chrome import heal_main_reply
         from app.bot.nav_inline import clear_nav_panel
 
         await clear_nav_panel(state)
+        await nav.set_user_preview_active(state, False)
         await heal_main_reply(
             message,
             session,
@@ -2845,11 +2846,14 @@ async def reply_main_nav(
             reseller_owner_id=reseller_owner_id,
         )
     elif action == kb.REPLY_ACTION_RESELLER:
-        if (await nav.get_nav_level(state)) == nav.NAV_USER_PREVIEW:
+        # Sticky preview flag survives nested user taps (shop/wallet) that
+        # change NAV_LEVEL away from NAV_USER_PREVIEW — still heal chrome.
+        if await nav.is_user_preview_active(state):
             from app.bot.nav_chrome import heal_main_reply
             from app.bot.nav_inline import clear_nav_panel
 
             await clear_nav_panel(state)
+            await nav.set_user_preview_active(state, False)
             await heal_main_reply(
                 message,
                 session,
@@ -2879,11 +2883,13 @@ async def reply_main_nav(
     elif action == kb.REPLY_ACTION_ADMIN:
         # Exit user-preview: restore admin ReplyKeyboard and force a fresh
         # panel at the bottom (do not edit a buried admin hub above preview).
-        if (await nav.get_nav_level(state)) == nav.NAV_USER_PREVIEW:
+        # Use sticky flag — nested preview taps leave NAV_LEVEL ≠ user_preview.
+        if await nav.is_user_preview_active(state):
             from app.bot.nav_chrome import heal_main_reply
             from app.bot.nav_inline import clear_nav_panel
 
             await clear_nav_panel(state)
+            await nav.set_user_preview_active(state, False)
             await heal_main_reply(
                 message,
                 session,

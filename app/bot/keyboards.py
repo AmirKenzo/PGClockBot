@@ -61,12 +61,13 @@ def _label_or(ui: dict | None, key: str, fallback: str) -> str:
 
 
 def normalize_reply_label(text: str | None) -> str:
-    """Strip leading symbol/emoji runs so reply matching survives icon leftovers."""
+    """Strip leading/trailing symbol runs so reply matching survives icon leftovers."""
     import re
 
     s = re.sub(r"\s+", " ", (text or "").strip())
-    # Keep Persian/Arabic letters, Latin, digits; drop leading ornamental symbols.
+    # Keep Persian/Arabic letters, Latin, digits; drop ornamental symbols at ends.
     s = re.sub(r"^[^0-9A-Za-z\u0600-\u06FF]+", "", s)
+    s = re.sub(r"[^0-9A-Za-z\u0600-\u06FF]+$", "", s)
     return s.strip()
 
 
