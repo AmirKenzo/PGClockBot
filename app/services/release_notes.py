@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.11": [
+        "پنل راه‌اندازی: راهنمای توکن gate اول cd به پوشهٔ نصب را می‌گوید، بعد bash pgclock.sh status (یا pgclock status از هر جا)",
+        "ریستور: restore/pre-v0.3.11-v0.3.10",
+    ],
     "0.3.10": [
         "مینی‌اپ: دکمه اینلاین مستقیم روی پیام خوش‌آمد /start می‌نشیند (مثل بازگشت از منو) — بدون پیام خالی یا «⌨️»",
         "ریستور: restore/pre-v0.3.10-v0.3.9",

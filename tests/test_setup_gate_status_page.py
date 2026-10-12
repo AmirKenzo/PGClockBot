@@ -18,6 +18,9 @@ class SetupGateStatusPageTests(unittest.TestCase):
         self.assertIn("راه‌اندازی اولیه", src)
         self.assertIn("چطور توکن", src)
         self.assertIn("bash pgclock.sh status", src)
+        self.assertIn('cd "$(cat /usr/local/lib/pgclockbot/install_root)"', src)
+        self.assertIn("وارد پوشهٔ نصب", src)
+        self.assertIn("pgclock status", src)
         self.assertIn("?gate=", src)
         # Old plain English wall removed
         self.assertNotIn("Setup link required", src)
@@ -44,15 +47,18 @@ class SetupGateStatusPageTests(unittest.TestCase):
             guide_steps=[
                 {"title": "۱. به سرور وصل شوید", "body": "با SSH وارد شوید."},
                 {
-                    "title": "۲. وضعیت را چاپ کنید",
-                    "body": "دستور زیر را اجرا کنید:",
+                    "title": "۲. وارد پوشهٔ نصب شوید و وضعیت را چاپ کنید",
+                    "body": "اول وارد پوشه شوید، بعد وضعیت را بگیرید:",
                 },
                 {
                     "title": "۳. لینک را باز کنید",
                     "body": 'پارامتر <code dir="ltr">?gate=…</code> توکن شماست.',
                 },
             ],
-            code_block="bash pgclock.sh status",
+            code_block=(
+                'cd "$(cat /usr/local/lib/pgclockbot/install_root)"\n'
+                "bash pgclock.sh status"
+            ),
             guide_note='از <code dir="ltr">127.0.0.1</code> بدون لینک.',
             footer="بعد از اتمام راه‌اندازی…",
             app_version="0.1.10",
@@ -62,6 +68,7 @@ class SetupGateStatusPageTests(unittest.TestCase):
         self.assertIn("panel-status-guide", html)
         self.assertIn("چطور توکن", html)
         self.assertIn("bash pgclock.sh status", html)
+        self.assertIn("install_root", html)
         self.assertIn("?gate=", html)
         self.assertIn('data-status="403"', html)
         self.assertIn("راه‌اندازی اولیه", html)
