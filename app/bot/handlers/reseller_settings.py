@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import logging
-
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot import keyboards as kb
-from app.bot.nav_input import finish_text_step
+from app.bot.nav_input import delete_user_message, finish_text_step
 from app.bot.tg_utils import safe_edit_text
 from app.db.models import BotUser
 from app.services.resellers import get_reseller_profile, has_bot_perm
@@ -39,7 +36,6 @@ from app.services.settings_button_labels import (
 )
 
 
-logger = logging.getLogger(__name__)
 
 
 async def _lasting_kb(session, db_user, classic, *, is_reseller_bot=False, reseller_owner_id=None):
@@ -396,10 +392,7 @@ async def _close_input(
     """Turn the input prompt into the next panel (same bubble) and drop the typed reply."""
     await finish_text_step(message, state, text=text, inline=markup)
     await state.clear()
-    try:
-        await message.delete()
-    except TelegramBadRequest:
-        logger.debug("could not delete settings input message", exc_info=True)
+    await delete_user_message(message)
 
 
 async def _close_input_to_hub(
