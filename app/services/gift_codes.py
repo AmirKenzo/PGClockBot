@@ -39,19 +39,25 @@ def utc(value: datetime) -> datetime:
 
 
 def expiry_input(value: datetime | None) -> str:
-    return utc(value).astimezone(TEHRAN).strftime("%Y-%m-%dT%H:%M") if value else ""
+    # Space separator matches the text field placeholder (easier to type on mobile).
+    return utc(value).astimezone(TEHRAN).strftime("%Y-%m-%d %H:%M") if value else ""
 
 
 def parse_expiry(raw: str) -> datetime | None:
-    if not raw.strip():
+    text = (raw or "").strip()
+    if not text:
         return None
+    # Accept "YYYY-MM-DD HH:MM", "YYYY-MM-DDTHH:MM", and ISO with seconds/offset.
+    normalized = text
+    if "T" not in normalized and " " in normalized:
+        normalized = normalized.replace(" ", "T", 1)
     try:
-        value = datetime.fromisoformat(raw.strip())
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=TEHRAN)
-        return utc(value)
+        value = datetime.fromisoformat(normalized)
     except ValueError as exc:
         raise ValueError("تاریخ انقضا نامعتبر است") from exc
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=TEHRAN)
+    return utc(value)
 
 
 def validate_rules(

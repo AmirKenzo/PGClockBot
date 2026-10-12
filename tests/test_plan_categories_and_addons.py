@@ -213,10 +213,12 @@ class WiringTests(unittest.TestCase):
             ),
         )
         css = Path("app/web/static/panel.css").read_text(encoding="utf-8")
-        self.assertIn("datetime-local", css)
         self.assertIn("gift-expires-field", css)
+        self.assertNotRegex(css, r'input\[type=["\']datetime-local["\']\]')
         gift = Path("app/web/templates/_gift_code_fields.html").read_text(encoding="utf-8")
         self.assertIn("gift-expires-field", gift)
+        self.assertRegex(gift, r'name="expires_at"[\s\S]*?type="text"')
+        self.assertNotIn('type="datetime-local"', gift)
         # Existing plan kinds (ثابت/…) must remain; labels are additive
         self.assertIn("USER_KINDS", plans)
         self.assertIn("{value: 'fixed', label: 'ثابت'}", plans)
