@@ -29,10 +29,21 @@
     <input name="max_uses_per_user" type="number" min="1" max="1000" value="{{ (c.max_uses_per_user if c.max_uses_per_user is not none else '') if c else 1 }}" placeholder="خالی = نامحدود" dir="ltr" />
   </label>
   <label class="form-field gift-expires-field">تاریخ و ساعت انقضا (به وقت تهران)
-    <span class="gift-expires-input-wrap">
-      <input name="expires_at" type="datetime-local" value="{{ details.get('expiry_input', '') }}" dir="ltr" />
-    </span>
-    <small class="muted">خالی = بدون انقضا · تاریخ میلادی</small>
+    {# Plain text — native date-time picker has a huge intrinsic min-width on
+       mobile WebViews; min-width:0 crushed the inner UI into a left-edge
+       sliver while still not matching sibling field widths. #}
+    <input
+      name="expires_at"
+      type="text"
+      inputmode="numeric"
+      autocomplete="off"
+      spellcheck="false"
+      maxlength="32"
+      placeholder="2030-01-01 23:59"
+      value="{{ details.get('expiry_input', '') }}"
+      dir="ltr"
+    />
+    <small class="muted">خالی = بدون انقضا · میلادی · YYYY-MM-DD HH:MM</small>
   </label>
   {% if not c %}
   <label class="form-field">کد سفارشی (اختیاری)

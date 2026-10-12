@@ -3433,32 +3433,12 @@ a.btn.btn-star:hover {
 .settings-grid > .setting-item {
   min-width: 0;
 }
-/* Native datetime-local has a large intrinsic min-width that blows grid columns
-   and gets clipped by .ui-modal-panel { overflow:hidden } → thin/broken control.
-   Grid wrapper forces the native picker to shrink to the column. */
+/* Gift expiry uses a plain text input (same chrome as siblings). Do not use a
+   native date-time picker here — mobile WebViews ignore width / crush the UI. */
 .form-field.gift-expires-field {
   min-width: 0;
   max-width: 100%;
   grid-column: 1 / -1;
-}
-.form-field.gift-expires-field > .gift-expires-input-wrap {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  order: 5;
-}
-.settings-grid input[type="datetime-local"],
-.form-field.gift-expires-field input[type="datetime-local"],
-.gift-expires-input-wrap > input[type="datetime-local"],
-.ui-modal-panel input[type="datetime-local"] {
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  height: var(--btn-h);
-  min-height: var(--btn-h);
-  box-sizing: border-box;
 }
 .setting-item.full { grid-column: 1 / -1; }
 .plan-name-cell {

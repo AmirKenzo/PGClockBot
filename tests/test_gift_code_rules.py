@@ -516,7 +516,11 @@ class GiftCodeValidationTests(unittest.TestCase):
             datetime(2030, 1, 1, 8, 30, tzinfo=timezone.utc),
         )
         self.assertEqual(
-            expiry_input(parse_expiry("2030-01-01T12:00")), "2030-01-01T12:00"
+            parse_expiry("2030-01-01 12:00"),
+            datetime(2030, 1, 1, 8, 30, tzinfo=timezone.utc),
+        )
+        self.assertEqual(
+            expiry_input(parse_expiry("2030-01-01T12:00")), "2030-01-01 12:00"
         )
         self.assertIsNone(parse_expiry(""))
 
