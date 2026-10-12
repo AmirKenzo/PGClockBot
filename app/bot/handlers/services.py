@@ -431,10 +431,7 @@ async def svc_guide(callback: CallbackQuery, session: AsyncSession, db_user: Bot
     back = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text=ui.get("btn_back") or "⬅️ بازگشت",
-                    callback_data=f"svc:view:{svc_id}",
-                )
+                kb.back_button(ui, f"svc:view:{svc_id}")
             ]
         ]
     )
@@ -470,10 +467,7 @@ async def svc_link(callback: CallbackQuery, session: AsyncSession, db_user: BotU
         markup = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(
-                        text=ui.get("btn_back") or "⬅️ بازگشت",
-                        callback_data=f"svc:view:{svc_id}",
-                    )
+                    kb.back_button(ui, f"svc:view:{svc_id}")
                 ]
             ]
         )
@@ -522,10 +516,7 @@ async def svc_renew(callback: CallbackQuery, session: AsyncSession, db_user: Bot
 
     rows.append(
         [
-            InlineKeyboardButton(
-                text=ui.get("btn_back") or "⬅️ بازگشت",
-                callback_data=f"svc:view:{svc_id}",
-            )
+            kb.back_button(ui, f"svc:view:{svc_id}")
         ]
     )
     hint = "پلن تمدید را انتخاب کنید:"
@@ -741,10 +732,7 @@ async def svc_addon(
 
     rows.append(
         [
-            InlineKeyboardButton(
-                text=ui.get("btn_back") or "⬅️ بازگشت",
-                callback_data=f"svc:view:{svc_id}",
-            )
+            kb.back_button(ui, f"svc:view:{svc_id}")
         ]
     )
     body = "بسته را انتخاب کنید؛ پس از پرداخت به همین سرویس اضافه می‌شود."

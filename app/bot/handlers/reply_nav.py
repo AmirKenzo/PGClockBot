@@ -634,10 +634,7 @@ async def open_support_list(
             inline=InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
-                        InlineKeyboardButton(
-                            text=ui.get("btn_back") or "⬅️ بازگشت",
-                            callback_data="nv:s:home",
-                        )
+                        kb.back_button(ui, "nv:s:home")
                     ]
                 ]
             ),
@@ -654,10 +651,7 @@ async def open_support_list(
     ]
     rows.append(
         [
-            InlineKeyboardButton(
-                text=ui.get("btn_back") or "⬅️ بازگشت",
-                callback_data="nv:s:home",
-            )
+            kb.back_button(ui, "nv:s:home")
         ]
     )
     await present_inline_only(

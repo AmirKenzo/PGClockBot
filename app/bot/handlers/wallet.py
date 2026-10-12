@@ -438,7 +438,7 @@ async def _topup_instructions(
     except Exception:
         text = format_message(title, fallback + append)
         send_kw = {}
-    rows.append([InlineKeyboardButton(text=ui.get("btn_back") or "بازگشت", callback_data="wallet:home")])
+    rows.append([kb.back_button(ui, "wallet:home")])
     return text, InlineKeyboardMarkup(inline_keyboard=rows), send_kw
 
 @router.callback_query(
@@ -504,7 +504,7 @@ async def wtop_choose_method(
         if link.startswith("http://") or link.startswith("https://"):
             rows.append([InlineKeyboardButton(text="🏦 ورود به درگاه", url=link)])
         rows.append(
-            [InlineKeyboardButton(text=ui.get("btn_back") or "بازگشت", callback_data="wallet:home")]
+            [kb.back_button(ui, "wallet:home")]
         )
         await state.clear()
         if callback.message:
