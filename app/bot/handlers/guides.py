@@ -69,7 +69,7 @@ def guide_detail_keyboard(
         url = guide_import_url(sub_url)
         if url:
             label = kb._label_or(ui, "btn_guide_open_link", "🔗 باز کردن لینک اشتراک").strip()[:64]
-            rows.append([InlineKeyboardButton(text=label, url=url)])
+            rows.append([kb._ikb(label, url=url, ui=ui, label_key="btn_guide_open_link")])
     back = f"guide:list:{int(svc_id or 0)}"
     rows.append([InlineKeyboardButton(text="⬅️ فهرست آموزش", callback_data=back)])
     return InlineKeyboardMarkup(inline_keyboard=rows)

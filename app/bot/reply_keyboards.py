@@ -1272,7 +1272,7 @@ def cancel_reply(ui: dict | None = None) -> ReplyKeyboardMarkup:
     if label and "انصراف" in label and label != BTN_CANCEL:
         cancel_label = BTN_CANCEL
     return _reply_markup(
-        [[_kb(cancel_label, style=_style(ui, "cancel", fallback="danger"), ui=ui)]],
+        [[_kb(cancel_label, style=_style(ui, "cancel", fallback="danger"), ui=ui, label_key="btn_cancel")]],
         placeholder="مقدار را بفرستید یا انصراف بزنید…",
     )
 

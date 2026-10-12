@@ -194,10 +194,14 @@ async def svc_auto_pick(callback: CallbackQuery, session: AsyncSession, db_user:
     except ValueError as exc:
         await callback.answer(str(exc), show_alert=True)
         return
+    from app.services.plan_categories import shop_category_map
     from app.services.service_addons import amount_label
+
+    categories = await shop_category_map(session)
     buttons = [[InlineKeyboardButton(
         text=f"{p.name}{' — +' + amount_label(p) if action != 'renew' else ''} — {format_toman(p.price)}",
         callback_data=f"svc:autoset:{service_id}:{action}:{p.id}",
+        icon_custom_emoji_id=kb.category_icon_for(p, categories),
     )] for p in choices]
     buttons.append([InlineKeyboardButton(text="بازگشت به تنظیمات", callback_data=f"svc:auto:{service_id}")])
     await callback.answer()
@@ -504,11 +508,15 @@ async def svc_renew(callback: CallbackQuery, session: AsyncSession, db_user: Bot
         await callback.answer("پلنی نیست", show_alert=True)
         return
     await callback.answer()
+    from app.services.plan_categories import shop_category_map
+
+    categories = await shop_category_map(session)
     rows = [
         [
             InlineKeyboardButton(
                 text=f"{p.name} — {format_toman(p.price, get_settings().currency)}",
                 callback_data=f"svc:renewpay:{svc_id}:{p.id}",
+                icon_custom_emoji_id=kb.category_icon_for(p, categories),
             )
         ]
         for p in plans
@@ -687,6 +695,9 @@ async def svc_addon(
         )
         return
     await callback.answer()
+    from app.services.plan_categories import shop_category_map
+
+    categories = await shop_category_map(session)
     rows = [
         [
             InlineKeyboardButton(
@@ -695,6 +706,7 @@ async def svc_addon(
                     f"(+{amount_label(p)}) — {format_toman(p.price, get_settings().currency)}"
                 ),
                 callback_data=f"svc:addonpay:{svc_id}:{p.id}",
+                icon_custom_emoji_id=kb.category_icon_for(p, categories),
             )
         ]
         for p in packs

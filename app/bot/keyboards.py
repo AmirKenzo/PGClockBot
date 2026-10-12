@@ -177,6 +177,17 @@ def _add_plan_row(ui: dict | None, add_callback: str) -> list[InlineKeyboardButt
     ]
 
 
+def category_icon_for(
+    item: object, categories: dict[int, object] | None
+) -> str | None:
+    """Premium icon id of the category a plan/pack belongs to (None when unset)."""
+    cid = getattr(item, "category_id", None)
+    if cid is None or not categories:
+        return None
+    category = categories.get(int(cid))
+    return getattr(category, "icon_custom_emoji_id", None) if category else None
+
+
 def _resolve_ui(ui: dict | None) -> dict | None:
     if ui is not None:
         return ui
@@ -1145,7 +1156,7 @@ def plans_keyboard(
                     style=_plan_row_style(
                         ui, p, kind=kind or fallback_kind, category=cat_obj
                     ),
-                    icon_custom_emoji_id=getattr(cat_obj, "icon_custom_emoji_id", None),
+                    icon_custom_emoji_id=category_icon_for(p, cat_objs),
                 )
             ]
         )
@@ -1170,6 +1181,7 @@ def wholesale_plans_keyboard(
     ui: dict | None = None,
     *,
     back_callback: str = "shop:list",
+    categories: dict[int, object] | None = None,
 ) -> InlineKeyboardMarkup:
     """Wholesale plan names — Back returns to shop kind hub (not this screen)."""
     rows = _pack_by_label_width(
@@ -1178,6 +1190,7 @@ def wholesale_plans_keyboard(
                 f"{p.name} — {p.price:,} ت".replace(",", "٬"),
                 callback_data=f"shop:wholesale:plan:{p.id}",
                 style=_plan_row_style(ui, p, kind="wholesale"),
+                icon_custom_emoji_id=category_icon_for(p, categories),
             )
             for p in plans
         ]
@@ -1533,6 +1546,8 @@ def admin_users_plans_overview_keyboard(
                 f"{trial_flag} {trial_label}{trial_hint}"[:60],
                 callback_data="adm:plans:kind:users:trial",
                 style=trial_row_style,
+                ui=ui,
+                label_key="btn_shop_kind_trial",
             )
         ]
     )
@@ -1542,6 +1557,8 @@ def admin_users_plans_overview_keyboard(
                 f"{'✅' if custom_on else '⏸'} {custom_label}",
                 callback_data="adm:plans:kind:users:custom",
                 style=custom_style,
+                ui=ui,
+                label_key="btn_shop_kind_custom",
             )
         ]
     )
@@ -1551,6 +1568,8 @@ def admin_users_plans_overview_keyboard(
                 f"{'✅' if wholesale_on else '⏸'} {wholesale_label}"[:60],
                 callback_data="adm:plans:kind:users:wholesale",
                 style=wholesale_style,
+                ui=ui,
+                label_key="btn_wholesale",
             )
         ]
     )
@@ -1684,27 +1703,35 @@ def admin_plans_add_type_keyboard(audience: str, ui: dict | None = None) -> Inli
         rows.extend(
             [
                 [
-                    InlineKeyboardButton(
-                        text=_label_or(ui, "btn_shop_kind_fixed", "ثابت"),
+                    _ikb(
+                        _label_or(ui, "btn_shop_kind_fixed", "ثابت"),
                         callback_data="adm:plans:add:users:fixed",
+                        ui=ui,
+                        label_key="btn_shop_kind_fixed",
                     )
                 ],
                 [
-                    InlineKeyboardButton(
-                        text=_label_or(ui, "btn_shop_kind_custom", "دلخواه"),
+                    _ikb(
+                        _label_or(ui, "btn_shop_kind_custom", "دلخواه"),
                         callback_data="adm:plans:add:users:custom",
+                        ui=ui,
+                        label_key="btn_shop_kind_custom",
                     )
                 ],
                 [
-                    InlineKeyboardButton(
-                        text=_label_or(ui, "btn_shop_kind_trial", "تست"),
+                    _ikb(
+                        _label_or(ui, "btn_shop_kind_trial", "تست"),
                         callback_data="adm:plans:add:users:trial",
+                        ui=ui,
+                        label_key="btn_shop_kind_trial",
                     )
                 ],
                 [
-                    InlineKeyboardButton(
-                        text=wholesale_label,
+                    _ikb(
+                        wholesale_label,
                         callback_data="adm:plans:add:users:wholesale",
+                        ui=ui,
+                        label_key="btn_wholesale",
                     )
                 ],
             ]
