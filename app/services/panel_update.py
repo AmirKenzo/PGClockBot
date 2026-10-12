@@ -1159,7 +1159,70 @@ def start_rollback_to_version(version: str, *, allowed: list[str] | None = None)
     return _start_thread(_do_rollback_to_version, ver)
 
 
+def _degraded_update_page_context(*, error: str | None = None) -> dict[str, Any]:
+    """Minimal update-tab context so /settings?tab=update never hard-500s."""
+    from app.services.update_channel import badge_context, channel_context
+
+    ch_ctx = channel_context()
+    badge = badge_context()
+    local = local_version()
+    label = "بررسی آپدیت ناموفق — صفحه را تازه کنید یا بعداً دوباره تلاش کنید."
+    info = {
+        "version": local,
+        "remote_version": None,
+        "update_available": False,
+        "label": label,
+        "tone": "warn",
+        "checked": False,
+        "channel": ch_ctx["channel"],
+        "channel_label": ch_ctx["channel_label"],
+    }
+    status = resolve_stale_update_status()
+    return {
+        "update_info": info,
+        "update": info,
+        "status": status,
+        "local_version": local,
+        "steps": [{"key": k, "label": lab, "percent": pct} for k, lab, pct in STEPS],
+        "snapshots": list_snapshots(),
+        "rollback_versions": [],
+        "can_rollback": False,
+        "show_ops": bool(
+            status.get("awaiting_restart")
+            or status.get("restart_required")
+            or status.get("state") in {"running", "error"}
+        ),
+        "changelog": {"title": "چنج‌لاگ", "blocks": [], "has_notes": False},
+        "update_channel": ch_ctx["channel"],
+        "update_channel_label": ch_ctx["channel_label"],
+        "update_channels": ch_ctx["channels"],
+        "deployed_channel": badge["deployed_channel"],
+        "deployed_channel_label": badge["deployed_channel_label"],
+        "migration_preflight": {
+            "checked": False,
+            "blocked": False,
+            "tone": "warn",
+            "label": "بررسی مایگریشن ناموفق",
+            "message": (error or "").strip()
+            or "بررسی مایگریشن کانال انجام نشد. بعداً دوباره تلاش کنید.",
+            "channel": ch_ctx["channel"],
+        },
+        "can_start_update": False,
+        "channel_check_message": label,
+        "channel_check_tone": "warn",
+    }
+
+
 async def update_page_context(*, force_check: bool = False) -> dict[str, Any]:
+    """Build update-tab context; never raises — soft-fails to a usable page."""
+    try:
+        return await _update_page_context_impl(force_check=force_check)
+    except Exception as e:
+        logger.exception("update_page_context failed: %s", e)
+        return _degraded_update_page_context(error="بررسی آپدیت با خطا روبه‌رو شد.")
+
+
+async def _update_page_context_impl(*, force_check: bool = False) -> dict[str, Any]:
     from app.services.release_notes import (
         changelog_for_update_page,
         fetch_remote_release_notes,
