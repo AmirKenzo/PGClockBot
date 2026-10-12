@@ -113,6 +113,33 @@ def chunk_buttons(
     return rows
 
 
+LIST_BUTTON_CAP = 40
+SHORT_LABEL_MAX = 20
+
+
+def list_overflow_line(total: int, shown: int = LIST_BUTTON_CAP) -> str:
+    """Message-text note for a list truncated to ``shown`` buttons (empty when nothing is hidden)."""
+    hidden = max(0, int(total) - int(shown))
+    return f"\n… و {hidden} مورد دیگر" if hidden else ""
+
+
+def _pack_by_label_width(
+    buttons: list[InlineKeyboardButton],
+) -> list[list[InlineKeyboardButton]]:
+    """Pair consecutive short labels; a long label takes a full row."""
+    rows: list[list[InlineKeyboardButton]] = []
+    pending: list[InlineKeyboardButton] = []
+    for button in buttons:
+        if len(button.text) > SHORT_LABEL_MAX:
+            rows.extend(chunk_buttons(pending, cols=2))
+            pending = []
+            rows.append([button])
+        else:
+            pending.append(button)
+    rows.extend(chunk_buttons(pending, cols=2))
+    return rows
+
+
 def _resolve_ui(ui: dict | None) -> dict | None:
     if ui is not None:
         return ui
@@ -939,6 +966,7 @@ def shop_kind_keyboard(
     if not rows:
         rows = [[InlineKeyboardButton(text="پلنی نیست", callback_data="menu:home")]]
     else:
+        rows = chunk_buttons([row[0] for row in rows], cols=2)
         # Same as wallet/support/loyalty hubs — back to welcome (menu:home).
         # Nested plan lists keep back_callback="shop:list" (kind picker), not home.
         rows.append(
@@ -1084,6 +1112,7 @@ def plans_keyboard(
                 )
             ]
         )
+    rows = _pack_by_label_width([row[0] for row in rows])
     if not rows:
         rows = [
             [
@@ -1095,17 +1124,7 @@ def plans_keyboard(
             ]
         ]
     if back_callback:
-        rows.append(
-            [
-                _ikb(
-                    _t(ui, "btn_back"),
-                    callback_data=back_callback,
-                    style=_style(ui, "back"),
-                    ui=ui,
-                    label_key="btn_back",
-                )
-            ]
-        )
+        rows.append([back_button(ui, back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1116,16 +1135,16 @@ def wholesale_plans_keyboard(
     back_callback: str = "shop:list",
 ) -> InlineKeyboardMarkup:
     """Wholesale plan names — Back returns to shop kind hub (not this screen)."""
-    rows = [
+    rows = _pack_by_label_width(
         [
             _ikb(
                 f"{p.name} — {p.price:,} ت".replace(",", "٬"),
                 callback_data=f"shop:wholesale:plan:{p.id}",
                 style=_plan_row_style(ui, p, kind="wholesale"),
             )
+            for p in plans
         ]
-        for p in plans
-    ]
+    )
     kind_style = _style(ui, "shop_kind_wholesale", fallback="primary")
     if not rows:
         rows = [
@@ -1297,112 +1316,51 @@ def any_checkout_method_enabled(ui: dict | None = None) -> bool:
     )
 
 
+_PAY_METHOD_STYLE_FALLBACKS: tuple[tuple[str, str | None], ...] = (
+    ("card", "primary"),
+    ("gateway", "primary"),
+    ("psp", "primary"),
+    ("crypto", "primary"),
+    ("stars", "primary"),
+    ("discount", None),
+)
+
+
+def _pay_method_button(
+    ui: dict | None,
+    order_id: int,
+    method: str,
+    style_fallback: str | None,
+) -> InlineKeyboardButton:
+    return _ikb(
+        _t(ui, f"btn_pay_{method}"),
+        callback_data=f"pay:{method}:{order_id}",
+        style=_style(ui, f"pay_{method}", fallback=style_fallback),
+        ui=ui,
+        label_key=f"btn_pay_{method}",
+    )
+
+
 def pay_methods(order_id: int, ui: dict | None = None) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if on(_t(ui, "pay_wallet_enabled")):
-        rows.append(
-            [
-                _ikb(
-                    _t(ui, "btn_pay_wallet"),
-                    callback_data=f"pay:wallet:{order_id}",
-                    style=_style(ui, "pay_wallet", fallback="success"),
-                    ui=ui,
-                    label_key="btn_pay_wallet",
-                )
-            ]
-        )
-    if on(_t(ui, "pay_card_enabled")):
-        rows.append(
-            [
-                _ikb(
-                    _t(ui, "btn_pay_card"),
-                    callback_data=f"pay:card:{order_id}",
-                    style=_style(ui, "pay_card", fallback="primary"),
-                    ui=ui,
-                    label_key="btn_pay_card",
-                )
-            ]
-        )
-    if on(_t(ui, "pay_gateway_enabled")):
-        rows.append(
-            [
-                _ikb(
-                    _t(ui, "btn_pay_gateway"),
-                    callback_data=f"pay:gateway:{order_id}",
-                    style=_style(ui, "pay_gateway", fallback="primary"),
-                    ui=ui,
-                    label_key="btn_pay_gateway",
-                )
-            ]
-        )
-    if on(_t(ui, "pay_psp_enabled")):
-        rows.append(
-            [
-                _ikb(
-                    _t(ui, "btn_pay_psp"),
-                    callback_data=f"pay:psp:{order_id}",
-                    style=_style(ui, "pay_psp", fallback="primary"),
-                    ui=ui,
-                    label_key="btn_pay_psp",
-                )
-            ]
-        )
-    if on(_t(ui, "pay_crypto_enabled")):
-        rows.append(
-            [
-                _ikb(
-                    _t(ui, "btn_pay_crypto"),
-                    callback_data=f"pay:crypto:{order_id}",
-                    style=_style(ui, "pay_crypto", fallback="primary"),
-                    ui=ui,
-                    label_key="btn_pay_crypto",
-                )
-            ]
-        )
-    if on(_t(ui, "pay_stars_enabled")):
-        rows.append(
-            [
-                _ikb(
-                    _t(ui, "btn_pay_stars"),
-                    callback_data=f"pay:stars:{order_id}",
-                    style=_style(ui, "pay_stars", fallback="primary"),
-                    ui=ui,
-                    label_key="btn_pay_stars",
-                )
-            ]
-        )
-    if on(_t(ui, "pay_discount_enabled")):
-        rows.append(
-            [
-                _ikb(
-                    _t(ui, "btn_pay_discount"),
-                    callback_data=f"pay:discount:{order_id}",
-                    style=_style(ui, "pay_discount"),
-                    ui=ui,
-                    label_key="btn_pay_discount",
-                )
-            ]
-        )
+        rows.append([_pay_method_button(ui, order_id, "wallet", "success")])
+    others = [
+        _pay_method_button(ui, order_id, method, fallback)
+        for method, fallback in _PAY_METHOD_STYLE_FALLBACKS
+        if on(_t(ui, f"pay_{method}_enabled"))
+    ]
+    rows.extend(chunk_buttons(others, cols=2))
     rows.append(
         [
-            _ikb(
-                _t(ui, "btn_back") or "⬅️ بازگشت",
-                callback_data=f"pay:back:{order_id}",
-                style=_style(ui, "back"),
-                ui=ui,
-                label_key="btn_back",
-            )
-        ]
-    )
-    rows.append(
-        [
+            back_button(ui, f"pay:back:{order_id}"),
             _ikb(
                 _t(ui, "btn_cancel"),
                 callback_data="menu:home",
                 style=_style(ui, "cancel", fallback="danger"),
                 ui=ui,
                 label_key="btn_cancel",
-            )
+            ),
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -1416,15 +1374,14 @@ def services_keyboard(
 ) -> InlineKeyboardMarkup:
     """Entity names only — actions/back live on reply keyboard."""
     _ = ui
-    rows = [
-        [
-            InlineKeyboardButton(
-                text=f"🔹 {s.pg_username}",
-                callback_data=f"svc:view:{s.id}",
-            )
-        ]
-        for s in services
+    buttons = [
+        InlineKeyboardButton(
+            text=f"🔹 {s.pg_username}",
+            callback_data=f"svc:view:{s.id}",
+        )
+        for s in services[:LIST_BUTTON_CAP]
     ]
+    rows = chunk_buttons(buttons, cols=2)
     if reseller_capacity_label:
         rows.insert(
             0,
@@ -1459,7 +1416,7 @@ def support_contacts_keyboard(contacts: list[dict], ui: dict | None = None) -> I
     """URL contact rows only — ticket/back live on support_reply_keyboard."""
     from app.services.button_styles import resolve_support_contact_style
 
-    rows: list[list[InlineKeyboardButton]] = []
+    buttons: list[InlineKeyboardButton] = []
     for c in contacts:
         url = support_chat_url(c.get("telegram") or "")
         title = str(c.get("title") or "پشتیبان")[:64]
@@ -1468,8 +1425,10 @@ def support_contacts_keyboard(contacts: list[dict], ui: dict | None = None) -> I
             kwargs: dict = {"text": f"💬 {title}", "url": url}
             if style:
                 kwargs["style"] = style
-            rows.append([InlineKeyboardButton(**kwargs)])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+            buttons.append(InlineKeyboardButton(**kwargs))
+    return InlineKeyboardMarkup(
+        inline_keyboard=chunk_buttons(buttons[:LIST_BUTTON_CAP], cols=2)
+    )
 
 
 def admin_home(ui: dict | None = None) -> InlineKeyboardMarkup:

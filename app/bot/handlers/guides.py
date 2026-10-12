@@ -36,9 +36,9 @@ def guides_list_keyboard(
     svc_id: int | None = None,
     back_callback: str | None = None,
 ) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
+    buttons: list[InlineKeyboardButton] = []
     prefix = f"guide:open:{svc_id}:" if svc_id else "guide:open:0:"
-    for g in items:
+    for g in items[: kb.LIST_BUTTON_CAP]:
         gid = str(g.get("id") or "")
         title = str(g.get("title") or "آموزش")[:64]
         kwargs: dict = {
@@ -48,7 +48,8 @@ def guides_list_keyboard(
         st = _item_style(ui, g.get("style") or g.get("button_style"))
         if st:
             kwargs["style"] = st
-        rows.append([InlineKeyboardButton(**kwargs)])
+        buttons.append(InlineKeyboardButton(**kwargs))
+    rows = kb.chunk_buttons(buttons, cols=2)
     if back_callback:
         rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data=back_callback)])
     else:
@@ -107,7 +108,9 @@ async def show_guides_list(
     items = guides_for_audience(await get_connection_guides(session), aud)
     text = format_message(
         "📘 آموزش اتصال",
-        "یک آموزش را انتخاب کنید:" if items else "هنوز آموزشی تعریف نشده است.",
+        ("یک آموزش را انتخاب کنید:" + kb.list_overflow_line(len(items)))
+        if items
+        else "هنوز آموزشی تعریف نشده است.",
     )
     markup = guides_list_keyboard(items, ui, svc_id=svc_id) if items else kb.back_home(ui)
     if isinstance(target, CallbackQuery):

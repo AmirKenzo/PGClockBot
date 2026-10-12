@@ -420,7 +420,9 @@ async def open_services_list(
                 ui=ui,
             )
         return
-    body = "📦 <b>سرویس‌های شما</b>\nیکی را انتخاب کنید:"
+    body = "📦 <b>سرویس‌های شما</b>\nیکی را انتخاب کنید:" + kb.list_overflow_line(
+        len(services)
+    )
     from app.bot.nav_inline import services_list_keyboard
 
     await present_inline_only(

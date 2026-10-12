@@ -314,7 +314,7 @@ async def svc_list(
         )
         await safe_edit_text(
             callback.message,
-            "📦 <b>سرویس‌های شما</b>",
+            "📦 <b>سرویس‌های شما</b>" + kb.list_overflow_line(len(services)),
             reply_markup=markup,
         )
 
