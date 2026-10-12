@@ -852,8 +852,11 @@ async def _pending_order_detail_lines(
     if plan is not None:
         if plan.data_limit_gb is not None:
             extras.append(kv_line("📶", "حجم پلن", f"{plan.data_limit_gb} گیگ"))
-        if plan.duration_days:
-            extras.append(kv_line("📅", "مدت پلن", f"{plan.duration_days} روز"))
+        from app.services.formatting import format_plan_duration_days
+
+        extras.append(
+            kv_line("📅", "مدت پلن", format_plan_duration_days(plan.duration_days))
+        )
     if order.payment_method:
         method_map = {
             "wallet": "کیف پول",

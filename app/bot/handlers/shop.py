@@ -16,7 +16,12 @@ from app.config import get_settings
 from app.db.models import BotUser, Order, PaymentMethod, UserService
 from app.services.redact import user_safe_error
 from app.services.delivery import send_delivery_to_user
-from app.services.formatting import format_message, format_toman, kv_line
+from app.services.formatting import (
+    format_message,
+    format_plan_duration_days,
+    format_toman,
+    kv_line,
+)
 from app.services.orders import (
     apply_discount_to_order,
     calc_custom_plan_price,
@@ -1129,7 +1134,7 @@ async def wholesale_confirm(callback: CallbackQuery, session: AsyncSession, stat
         f"{wholesale_description(ui)}\n\n"
         f"{kv_line('💎', 'پلن', plan.name)}\n"
         f"{kv_line('📦', 'تعداد', f'<b>{qty}</b>')}\n"
-        f"{kv_line('📅', 'مدت هر سرویس', f'{plan.duration_days} روز')}\n"
+        f"{kv_line('📅', 'مدت هر سرویس', format_plan_duration_days(plan.duration_days))}\n"
         f"{kv_line('📶', 'حجم هر سرویس', limit)}\n"
         f"{kv_line('💰', 'قیمت واحد', format_toman(plan.price, get_settings().currency))}"
         f"{disc_block}\n"
@@ -1224,7 +1229,7 @@ async def shop_plan(callback: CallbackQuery, session: AsyncSession, db_user: Bot
     body = info_block(
         [
             plan.description or "",
-            kv_line("⏱", "مدت", f"<b>{plan.duration_days}</b> روز"),
+            kv_line("⏱", "مدت", f"<b>{format_plan_duration_days(plan.duration_days)}</b>"),
             kv_line("📦", "حجم", f"<b>{limit}</b>"),
             kv_line("💰", "قیمت", f"<b>{format_toman(plan.price, get_settings().currency)}</b>"),
         ]
