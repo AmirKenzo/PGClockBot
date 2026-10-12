@@ -902,6 +902,9 @@ async def wholesale_start(callback: CallbackQuery, session: AsyncSession, state:
     if not plans:
         await callback.answer("پلنی برای فروش عمده نیست", show_alert=True)
         return
+    from app.services.plan_categories import shop_category_map
+
+    categories = await shop_category_map(session)
     from app.bot import menu_nav as nav
 
     # Keep shop nav stack; only reset wholesale qty FSM fields
@@ -915,7 +918,9 @@ async def wholesale_start(callback: CallbackQuery, session: AsyncSession, state:
     )
     if callback.message:
         await safe_edit_text(
-            callback.message, text, reply_markup=kb.wholesale_plans_keyboard(plans, ui)
+            callback.message,
+            text,
+            reply_markup=kb.wholesale_plans_keyboard(plans, ui, categories=categories),
         )
 
 @router.callback_query(F.data.startswith("shop:wholesale:plan:"))
@@ -2426,13 +2431,16 @@ def _register_shop_cancel_codes() -> None:
         plan = await get_catalog_plan(session, plan_id) if plan_id else None
         if not plan:
             plans = [p for p in await list_active_plans(session) if not getattr(p, "is_trial", False)]
+            from app.services.plan_categories import shop_category_map
+
+            categories = await shop_category_map(session)
             await present_inline_only(
                 message,
                 text=format_message(
                     "📦 فروش عمده",
                     wholesale_description(ui) + "\n\nابتدا نوع سرویس (پلن) را انتخاب کنید:",
                 ),
-                inline=kb.wholesale_plans_keyboard(plans, ui),
+                inline=kb.wholesale_plans_keyboard(plans, ui, categories=categories),
             )
             await state.set_state(None)
             return

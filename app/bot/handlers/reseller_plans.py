@@ -510,6 +510,7 @@ async def res_plan_gb(message: Message, state: FSMContext, session: AsyncSession
                 InlineKeyboardButton(
                     text=c.name[:48],
                     callback_data=f"res:plan:newcat:{c.id}",
+                    icon_custom_emoji_id=getattr(c, "icon_custom_emoji_id", None),
                 )
             ]
         )
@@ -841,6 +842,7 @@ async def res_plan_cat_pick(
                 InlineKeyboardButton(
                     text=f"{mark}{c.name}{suffix}"[:48],
                     callback_data=f"res:plan:setcat:{plan.id}:{c.id}",
+                    icon_custom_emoji_id=getattr(c, "icon_custom_emoji_id", None),
                 )
             ]
         )

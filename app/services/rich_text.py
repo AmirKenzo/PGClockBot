@@ -251,6 +251,8 @@ _ACTION_TO_BTN_KEY: dict[str, str] = {
     "topup_crypto": "btn_pay_crypto",
     "svc_renew": "btn_renew",
     "svc_link": "btn_sub_link",
+    "svc_guide": "btn_guides",
+    "res_preview": "btn_adm_preview",
 }
 
 

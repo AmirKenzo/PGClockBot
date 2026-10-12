@@ -330,7 +330,7 @@ async def send_users_fixed_list(message: Message, session: AsyncSession) -> None
         body = "\n\n".join(_plan_line(p) for p in fixed[:20])
     await present_inline_only(
         message,
-        text=f"📦 <b>پلن‌های ثابت</b>\n\n{body}",
+        text=f"📦 <b>پلن‌های ثابت</b>\n\n{body}" + kb.list_overflow_line(len(fixed)),
         inline=kb.admin_plans_list_keyboard(
             plans,
             ui,
@@ -488,7 +488,7 @@ async def send_reseller_plans_list(
             text=(
                 f"🎁 <b>پلن‌های نماینده — {label}</b>\n"
                 "بدون گروه/نقش/نام‌گذاری سرویس.\n\n"
-                f"{body}"
+                f"{body}" + kb.list_overflow_line(len(plans))
             ),
             inline=kb.admin_reseller_plans_list_keyboard(
                 plans,
@@ -516,7 +516,7 @@ async def send_reseller_plans_list(
         body = "\n\n".join(cards)
     await present_inline_only(
         message,
-        text=f"🤝 <b>پلن‌های نماینده — {label}</b>\n\n{body}",
+        text=f"🤝 <b>پلن‌های نماینده — {label}</b>\n\n{body}" + kb.list_overflow_line(len(plans)),
         inline=kb.admin_reseller_plans_list_keyboard(
             plans,
             await get_all_settings(session),
@@ -653,7 +653,7 @@ async def _rerender_plans_screen(
         )
         title_prefix = "🎁" if kind in {"addon_volume", "addon_users"} else "🤝"
         await callback.message.edit_text(
-            f"{title_prefix} <b>پلن‌های نماینده — {label}</b>\n\n{body}",
+            f"{title_prefix} <b>پلن‌های نماینده — {label}</b>\n\n{body}" + kb.list_overflow_line(len(plans)),
             reply_markup=kb.admin_reseller_plans_list_keyboard(
                 plans,
                 await get_all_settings(session),
@@ -1491,6 +1491,13 @@ async def _show_resplan_color_picker(
     else:
         await target.answer(text, reply_markup=markup)
 
+def _pack_resplan_detail(
+    rows: list[list[InlineKeyboardButton]],
+) -> list[list[InlineKeyboardButton]]:
+    return kb.pack_detail_rows(
+        rows, pair_prefixes=("adm:resplan:toggle:", "adm:resplan:delask:")
+    )
+
 def _resplan_detail_keyboard(plan: ResellerPlan) -> InlineKeyboardMarkup:
     from app.services.pg_admin_subscription import is_addon_plan, is_subscription_plan
     from app.services.reseller_capacity import plan_allows_buy_extra
@@ -1527,7 +1534,7 @@ def _resplan_detail_keyboard(plan: ResellerPlan) -> InlineKeyboardMarkup:
                 _back_row("⬅️ پلن‌های نمایندگان", "adm:plans:aud:resellers"),
             ]
         )
-        return _kb(rows)
+        return _kb(_pack_resplan_detail(rows))
 
     if mode == "payg":
         rows.append(
@@ -1601,7 +1608,7 @@ def _resplan_detail_keyboard(plan: ResellerPlan) -> InlineKeyboardMarkup:
             _back_row("⬅️ پلن‌های نمایندگان", "adm:plans:aud:resellers"),
         ]
     )
-    return _kb(rows)
+    return _kb(_pack_resplan_detail(rows))
 
 @router.callback_query(F.data.startswith("adm:resplan:view:"))
 @require_bot_owner_handler

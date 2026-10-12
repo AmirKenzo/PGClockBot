@@ -217,7 +217,7 @@ async def _render_plans_list(callback: CallbackQuery, session: AsyncSession) -> 
         from app.bot.handlers.admin import _plan_line
 
         cards = "\n\n".join(_plan_line(p) for p in fixed[:20])
-        text = f"📦 <b>پلن‌های ثابت</b>\n\n{cards}"
+        text = f"📦 <b>پلن‌های ثابت</b>\n\n{cards}" + kb.list_overflow_line(len(fixed))
     if callback.message:
         await callback.message.edit_text(
             text,
@@ -385,7 +385,11 @@ def _plan_detail_keyboard(p: Plan, ui: dict | None = None) -> InlineKeyboardMark
             )
         ]
     )
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return InlineKeyboardMarkup(
+        inline_keyboard=kb.pack_detail_rows(
+            rows, pair_prefixes=("adm:plan:toggle:", "adm:plan:delask:")
+        )
+    )
 
 def _style_danger(ui: dict | None) -> str | None:
     return kb._style(ui, "reject", fallback="danger")
@@ -1659,6 +1663,7 @@ async def _show_plan_category_picker(
                     InlineKeyboardButton(
                         text=c.name[:48],
                         callback_data=f"adm:plan:newcat:{c.id}",
+                        icon_custom_emoji_id=getattr(c, "icon_custom_emoji_id", None),
                     )
                 ]
             )
@@ -1688,6 +1693,7 @@ async def _show_plan_category_picker(
                     InlineKeyboardButton(
                         text=f"{mark}{c.name}{suffix}"[:48],
                         callback_data=f"{prefix}:{c.id}",
+                        icon_custom_emoji_id=getattr(c, "icon_custom_emoji_id", None),
                     )
                 ]
             )

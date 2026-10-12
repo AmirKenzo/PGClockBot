@@ -163,6 +163,11 @@ def uncategorized_fixed_plans(fixed_plans: list[Plan]) -> list[Plan]:
     return [p for p in fixed_plans if getattr(p, "category_id", None) is None]
 
 
+async def shop_category_map(session: AsyncSession) -> dict[int, PlanCategory]:
+    """Active shop categories keyed by id — one query for icon inheritance on plan rows."""
+    return {int(c.id): c for c in await list_shop_categories(session, active_only=True)}
+
+
 def plans_in_category(fixed_plans: list[Plan], category_id: int | None) -> list[Plan]:
     if category_id is None:
         return uncategorized_fixed_plans(fixed_plans)

@@ -175,6 +175,7 @@ async def _resapply_plan_list_keyboard(
                         ui, p, kind=reseller_plan_mode_of(p), audience="resellers",
                         category=cat_obj,
                     ),
+                    icon_custom_emoji_id=kb.category_icon_for(p, cat_objs),
                 )
             ]
         )
