@@ -164,7 +164,8 @@ class TestStickyUserPreviewFlag(unittest.IsolatedAsyncioTestCase):
 
 
 class TestGiftExpiresWidthCss(unittest.TestCase):
-    def test_gift_expires_has_grid_wrap(self):
+    def test_gift_expires_uses_plain_text_input(self):
+        """datetime-local crushed on mobile WebViews — use text like siblings."""
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[1]
@@ -172,9 +173,12 @@ class TestGiftExpiresWidthCss(unittest.TestCase):
         gift = (root / "app/web/templates/_gift_code_fields.html").read_text(
             encoding="utf-8"
         )
-        self.assertIn("gift-expires-input-wrap", css)
-        self.assertIn("gift-expires-input-wrap", gift)
-        self.assertIn("grid-template-columns: minmax(0, 1fr)", css)
+        self.assertIn('name="expires_at"', gift)
+        self.assertRegex(gift, r'name="expires_at"[\s\S]*?type="text"')
+        self.assertNotIn('type="datetime-local"', gift)
+        self.assertNotIn("gift-expires-input-wrap", gift)
+        self.assertNotIn("datetime-local", css)
+        self.assertIn("gift-expires-field", css)
         self.assertIn("<small class=\"muted\">", gift)
 
 
