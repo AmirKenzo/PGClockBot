@@ -488,7 +488,7 @@ class ButtonStyleTests(unittest.TestCase):
         from app.services.button_styles import setting_key
 
         kb = admin_plan_kind_keyboard("resellers", ui={})
-        fixed, payg = kb.inline_keyboard[0][0], kb.inline_keyboard[1][0]
+        fixed, payg = kb.inline_keyboard[0][0], kb.inline_keyboard[0][1]
         self.assertEqual(fixed.style, "primary")
         self.assertEqual(payg.style, "primary")
         custom = {
@@ -497,7 +497,7 @@ class ButtonStyleTests(unittest.TestCase):
         }
         kb2 = admin_plan_kind_keyboard("resellers", ui=custom)
         self.assertEqual(kb2.inline_keyboard[0][0].style, "success")
-        self.assertEqual(kb2.inline_keyboard[1][0].style, "danger")
+        self.assertEqual(kb2.inline_keyboard[0][1].style, "danger")
 
     def test_global_home_back_footer_styles(self):
         from app.bot.keyboards import Role, main_reply_keyboard, wallet_reply_keyboard
