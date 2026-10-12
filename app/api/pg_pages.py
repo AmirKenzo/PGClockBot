@@ -1043,9 +1043,15 @@ def register_pg_pages(
             if denied is not None:
                 return denied
             pg, _ = await _staff_pg(session, staff)
-            await pg.delete_user_by_id(user_id)
-            from app.services.bot_user_admin import detach_local_services_for_pg_user
+            from app.services.bot_user_admin import (
+                detach_local_services_for_pg_user,
+                ensure_pg_user_removed_or_absent,
+            )
 
+            # Idempotent: confirmed PG 404 still detaches local shop rows.
+            await ensure_pg_user_removed_or_absent(
+                pg, user_id, staff=staff, allow_disable_fallback=False
+            )
             await detach_local_services_for_pg_user(session, user_id, commit=True)
         except Exception as e:
             return RedirectResponse(f"/pg/users?err={_pg_err(e)}", status_code=303)

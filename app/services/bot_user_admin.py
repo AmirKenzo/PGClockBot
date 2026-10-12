@@ -925,6 +925,108 @@ async def admin_extend_service(
     )
 
 
+async def _pg_user_presence(pg: Any, pg_uid: int) -> str:
+    """Probe whether a PasarGuard user still exists.
+
+    Returns ``absent`` (clean GET HTTP 404), ``present`` (GET returned a user),
+    or ``unknown`` (403/5xx/network/odd body). Only ``absent`` may authorize
+    wiping a local shop row after a DELETE 404 — never treat uncertainty as gone.
+    """
+    from app.services.pasarguard import is_pg_not_found
+
+    try:
+        info = await pg.get_user_by_id(int(pg_uid))
+    except Exception as exc:
+        if is_pg_not_found(exc):
+            return "absent"
+        return "unknown"
+    if isinstance(info, dict) and info.get("id") is not None:
+        return "present"
+    # Empty / unexpected body — do not guess.
+    return "unknown"
+
+
+def _raise_pg_not_removed(presence: str, *, cause: BaseException) -> None:
+    """Fail closed; message distinguishes confirmed-present vs uncertain."""
+    if presence == "present":
+        raise ValueError(
+            "حذف در پاسارگارد ناموفق بود (کاربر هنوز موجود است) — سرویس محلی حذف نشد"
+        ) from cause
+    raise ValueError(
+        "حذف در پاسارگارد ناموفق بود — سرویس محلی حذف نشد"
+    ) from cause
+
+
+async def ensure_pg_user_removed_or_absent(
+    pg: Any,
+    pg_uid: int,
+    *,
+    staff: dict | None = None,
+    allow_disable_fallback: bool = True,
+) -> str:
+    """Delete a PasarGuard user, treating clean 404 as already-gone.
+
+    Returns one of ``deleted`` | ``already_absent`` | ``disabled``.
+
+    Security contract:
+    - DELETE success → ``deleted``
+    - DELETE HTTP 404 + GET-by-id also 404 → ``already_absent`` (idempotent OK)
+    - DELETE HTTP 404 but GET still finds the user → raise (inconsistent API)
+    - DELETE HTTP 404 but GET uncertain (403/5xx/network) → raise (fail closed)
+    - Other DELETE failures → optional disable fallback
+    - DISABLE success → ``disabled``
+    - DISABLE HTTP 404 + GET 404 → ``already_absent``
+    - Network / 5xx / unknown → raise ValueError (fail closed; local row kept)
+
+    Local shop rows are removed only after a confirmed end-state (deleted,
+    already absent, or disabled). A lone DELETE 404 is never enough.
+    """
+    from app.services.pasarguard import is_pg_not_found
+
+    uid = int(pg_uid)
+    assert_staff_pg_user_action(staff, "delete")
+    try:
+        await pg.delete_user_by_id(uid)
+        return "deleted"
+    except Exception as del_exc:
+        if is_pg_not_found(del_exc):
+            presence = await _pg_user_presence(pg, uid)
+            if presence == "absent":
+                logger.info("PG user %s already absent (DELETE+GET 404)", uid)
+                return "already_absent"
+            # Present or unknown — never wipe local on unconfirmed absence.
+            _raise_pg_not_removed(presence, cause=del_exc)
+        logger.warning(
+            "PG delete failed uid=%s — trying disable fallback",
+            uid,
+            exc_info=True,
+        )
+
+    if not allow_disable_fallback:
+        raise ValueError(
+            "حذف در پاسارگارد ناموفق بود — سرویس محلی حذف نشد"
+        )
+
+    try:
+        assert_staff_pg_user_action(staff, "disable")
+        await pg.set_disabled_by_id(uid, True)
+        return "disabled"
+    except ValueError:
+        # Missing users.disable permission — surface as-is.
+        raise
+    except Exception as dis_exc:
+        if is_pg_not_found(dis_exc):
+            presence = await _pg_user_presence(pg, uid)
+            if presence == "absent":
+                logger.info("PG user %s absent after disable 404 (GET 404)", uid)
+                return "already_absent"
+            _raise_pg_not_removed(presence, cause=dis_exc)
+        logger.debug("PG disable fallback failed uid=%s", uid, exc_info=True)
+        raise ValueError(
+            "حذف/غیرفعال‌سازی در پاسارگارد ناموفق بود — سرویس محلی حذف نشد"
+        ) from dis_exc
+
+
 async def admin_delete_service(
     session: AsyncSession,
     service: UserService,
@@ -938,6 +1040,10 @@ async def admin_delete_service(
     orders / loyalty / wheel spins, then removes the ``UserService`` row.
     Web staff must have PasarGuard ``users.delete`` (disable fallback needs
     ``users.disable`` / update).
+
+    Idempotent on PasarGuard: a confirmed HTTP 404 (user already gone) allows
+    local cleanup. Transport/5xx failures stay fail-closed so live PG users are
+    never orphaned by wiping the shop row too early.
     """
     from sqlalchemy import delete, update
 
@@ -948,35 +1054,22 @@ async def admin_delete_service(
     pg_uid = int(service.pg_user_id) if service.pg_user_id else None
     pg_deleted = False
     pg_disabled = False
+    pg_already_absent = False
 
     if delete_pg and pg_uid:
+        # ACL before any PG network call (fail closed on missing users.delete).
         assert_staff_pg_user_action(staff, "delete")
         pg = await _pg_client_for_bot_service(session, service)
-        try:
-            await pg.delete_user_by_id(pg_uid)
+        outcome = await ensure_pg_user_removed_or_absent(
+            pg, pg_uid, staff=staff, allow_disable_fallback=True
+        )
+        if outcome == "deleted":
             pg_deleted = True
-        except Exception:
-            logger.warning(
-                "PG delete failed service=%s pg=%s — trying disable",
-                svc_id,
-                pg_uid,
-                exc_info=True,
-            )
-            try:
-                assert_staff_pg_user_action(staff, "disable")
-                await pg.set_disabled_by_id(pg_uid, True)
-                pg_disabled = True
-            except ValueError:
-                raise
-            except Exception:
-                logger.debug("PG disable fallback failed uid=%s", pg_uid, exc_info=True)
-
-        # Fail closed: never wipe the local shop row while the PG user still
-        # exists and is enabled — that orphans live quota / billing.
-        if not pg_deleted and not pg_disabled:
-            raise ValueError(
-                "حذف/غیرفعال‌سازی در پاسارگارد ناموفق بود — سرویس محلی حذف نشد"
-            )
+        elif outcome == "already_absent":
+            pg_deleted = True
+            pg_already_absent = True
+        elif outcome == "disabled":
+            pg_disabled = True
 
     await session.execute(
         update(Order).where(Order.service_id == svc_id).values(service_id=None)
@@ -999,6 +1092,7 @@ async def admin_delete_service(
         "pg_user_id": pg_uid,
         "pg_deleted": pg_deleted,
         "pg_disabled": pg_disabled,
+        "pg_already_absent": pg_already_absent,
     }
 
 
