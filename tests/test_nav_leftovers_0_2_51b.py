@@ -84,7 +84,7 @@ class AdmResellersEditInPlaceTests(unittest.IsolatedAsyncioTestCase):
         start = text.index("status_fa = {")
         end = text.index("📋 درخواست‌های باز")
         window = text[start:end]
-        self.assertIn('callback_data="nv:adm:resellers"', window)
+        self.assertIn('back_button(None, "nv:adm:resellers")', window)
         self.assertNotIn('callback_data="adm:resellers"', window)
 
 
