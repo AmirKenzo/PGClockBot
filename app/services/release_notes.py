@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.18": [
+        "پنل: فیلد انقضای کد هدیه از datetime-local به text تغییر کرد تا در موبایل هم‌عرض بقیهٔ فیلدها باشد (فرمت YYYY-MM-DD HH:MM به وقت تهران)",
+        "ریستور: restore/pre-v0.3.18-v0.3.17",
+    ],
     "0.3.17": [
         "خروج از پیش‌نمایش منوی کاربر: فلگ چسبان تا بعد از خرید/کیف پول هم کیبورد ادمین ترمیم شود (گیر نکند)",
         "نرمال‌سازی لیبل دکمه‌های ریپلای: حذف نمادهای ابتدا و انتها برای تطبیق مطمئن‌تر",
