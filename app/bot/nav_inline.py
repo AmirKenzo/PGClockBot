@@ -899,17 +899,6 @@ def admin_resellers_hub_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup
     rows: list[list[InlineKeyboardButton]] = []
     for i in range(0, len(buttons), 2):
         rows.append(buttons[i : i + 2])
-    # Optional Mini App shortcut (same as classic follow-up, without chrome).
-    try:
-        from app.bot.keyboards import miniapp_inline_keyboard
-
-        mini = miniapp_inline_keyboard(
-            None, view="ops", label="📱 مینی‌اپ · نمایندگان"
-        )
-        if mini and mini.inline_keyboard:
-            rows.extend(mini.inline_keyboard)
-    except Exception:
-        pass
     rows.append(_hub_back_row(ui, callback_data="nv:adm:people"))
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -1199,11 +1188,3 @@ def services_list_keyboard(
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-
-def miniapp_reply_button(ui: dict | None = None):
-    """Deprecated: ReplyKeyboard web_app leaves initData empty (Telegram design).
-
-    Kept as a stub returning ``None`` so callers fall through to the text-button
-    + inline web_app flow (see ``REPLY_ACTION_MINIAPP`` / ``miniapp_inline_keyboard``).
-    """
-    return None

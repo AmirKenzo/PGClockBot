@@ -25,6 +25,7 @@ class ResellerApplyOnMainKbTests(unittest.TestCase):
         )
         labels = [btn.text for row in markup.keyboard for btn in row]
         self.assertIn("🤝 درخواست نمایندگی", labels)
+        self.assertNotIn("مینی‌اپ", labels)
 
     def test_apply_hidden_when_flag_off(self):
         from app.bot import keyboards as kb

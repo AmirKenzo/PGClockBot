@@ -1007,17 +1007,10 @@ async def settings_edit_ask(
         from app.services.rich_text import is_button_label_key, is_message_rich_key
 
         if is_button_label_key(key):
-            if key == "btn_miniapp":
-                hint += (
-                    "\n<i>متن دکمهٔ اینلاین مینی‌اپ روی پیام خوش‌آمد (/start). "
-                    "وقتی مینی‌اپ HTTPS فعال باشد نشان داده می‌شود. "
-                    "رنگ از «رنگ‌بندی دکمه‌ها»؛ Menu کنار چت هم مستقیم باز می‌کند.</i>"
-                )
-            else:
-                hint += (
-                    "\n<i>ایموجی پریمیوم به‌عنوان آیکن دکمه "
-                    "(icon_custom_emoji_id) ذخیره می‌شود.</i>"
-                )
+            hint += (
+                "\n<i>ایموجی پریمیوم به‌عنوان آیکن دکمه "
+                "(icon_custom_emoji_id) ذخیره می‌شود.</i>"
+            )
         elif is_message_rich_key(key):
             hint += "\n<i>ایموجی پریمیوم در متن پیام حفظ می‌شود.</i>"
     from app.bot.nav_input import ask_text

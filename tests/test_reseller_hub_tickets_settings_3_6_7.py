@@ -111,7 +111,7 @@ class ShopSettingsCompletenessTests(unittest.TestCase):
 
         self.assertIn("btn_admin", PLATFORM_ONLY_BTN_KEYS)
         self.assertIn("btn_reseller_apply", PLATFORM_ONLY_BTN_KEYS)
-        self.assertIn("btn_miniapp", PLATFORM_ONLY_BTN_KEYS)
+        self.assertNotIn("btn_miniapp", PLATFORM_ONLY_BTN_KEYS)
         self.assertIn("btn_adm_users", PLATFORM_ONLY_BTN_KEYS)
 
 

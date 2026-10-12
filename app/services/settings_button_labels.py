@@ -4,7 +4,7 @@ Telegram settings keep ≤8 fields per screen; groups map to related IA
 categories (main menu, wallet submenu, pay methods, admin keyboard, …).
 
 ``PLATFORM_ONLY_BTN_KEYS`` must never appear on reseller/shop settings
-(bot or web) — platform apply / miniapp / admin keyboard labels.
+(bot or web) — platform apply / admin keyboard labels.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ Field = tuple[str, str, str]
 PLATFORM_ONLY_BTN_KEYS: frozenset[str] = frozenset(
     {
         "btn_reseller_apply",
-        "btn_miniapp",
         "btn_admin",
         "btn_reseller_creds",
         "btn_adm_orders",
@@ -39,7 +38,6 @@ BTN_MAIN_MENU: list[Field] = [
     ("btn_support", "پشتیبانی", "text"),
     ("btn_loyalty", "باشگاه مشتریان", "text"),
     ("btn_reseller_apply", "درخواست نمایندگی", "text"),
-    ("btn_miniapp", "مینی‌اپ", "text"),
     ("btn_wholesale", "فروش عمده", "text"),
 ]
 

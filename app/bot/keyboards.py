@@ -5,7 +5,6 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardMarkup,
-    WebAppInfo,
 )
 
 from app.config import get_settings
@@ -32,7 +31,7 @@ DEFAULT_MENU_ORDER = [
 DEFAULT_ACTIVE_MENU_ORDER = list(DEFAULT_MENU_ORDER)
 
 # Legacy keys stripped from saved menu_order so old installs drop them from the keyboard.
-# miniapp lives on the welcome inline button (not ReplyKeyboard / menu DnD).
+# miniapp: MenuButton «Open» only — never ReplyKeyboard / menu DnD / welcome inline.
 REMOVED_MENU_KEYS = frozenset({"guide", "faq", "restart", "help", "referral", "miniapp"})
 
 
@@ -256,7 +255,7 @@ def main_menu(
                     label_key="btn_reseller_apply",
                 )
             )
-        # miniapp is welcome-inline only (not main_menu Reply/inline catalog)
+        # miniapp: MenuButton Open only — never cataloged here
 
     # compact = pair left-to-right like the web-panel live preview; classic = one per row
     full_width: list[InlineKeyboardButton] = []
@@ -673,45 +672,6 @@ def reseller_plans_list_keyboard(
             ]
         )
     return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def miniapp_inline_keyboard(
-    ui: dict | None = None,
-    *,
-    view: str = "",
-    label: str | None = None,
-) -> InlineKeyboardMarkup | None:
-    """Inline web_app open button — platform bot only when Mini App HTTPS is ready.
-
-    Used on the welcome ``/start`` message (and legacy reply-tap heal). Not gated
-    by ``menu_order`` (miniapp is no longer a ReplyKeyboard / DnD item).
-
-    Telegram rejects non-HTTPS WebApp URLs — never emit a button unless the
-    URL is https://… . Never set ``icon_custom_emoji_id`` (empty initData).
-    Label/style: ``btn_miniapp`` / ``btn_style_miniapp``.
-    """
-    from app.services.users import current_shop_reseller_id
-
-    # Shop bots never advertise the platform miniapp (HMAC uses main bot token)
-    if current_shop_reseller_id():
-        return None
-    settings = get_settings()
-    if not settings.miniapp_enabled:
-        return None
-    url = settings.miniapp_deep_url(view) if view else settings.miniapp_url
-    if not url or not str(url).startswith("https://"):
-        return None
-    text = (label or _t(ui, "btn_miniapp") or "📱 مینی‌اپ").strip() or "📱 مینی‌اپ"
-    btn = _ikb(
-        text[:64],
-        web_app=WebAppInfo(url=url),
-        style=_style(ui, "miniapp", fallback="primary"),
-    )
-    return InlineKeyboardMarkup(inline_keyboard=[[btn]])
-
-
-def miniapp_reseller_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup | None:
-    return miniapp_inline_keyboard(ui, view="home", label="📱 مینی‌اپ نماینده")
 
 
 def force_join_inline_keyboard(

@@ -631,7 +631,7 @@ def _topup_method_entries(ui: dict | None = None) -> list[tuple[str, str]]:
 
 
 def _pack_reply_button(action: str, text: str, ui: dict | None) -> KeyboardButton | None:
-    """Build one reply button (miniapp is welcome-inline, never on ReplyKeyboard)."""
+    """Build one reply button (miniapp is MenuButton Open only — never on ReplyKeyboard)."""
     if action in {"miniapp", getattr(_k, "REPLY_ACTION_MINIAPP", "miniapp")}:
         return None
     if not (text or "").strip():
@@ -1029,6 +1029,7 @@ def reply_action_map(
         admin_label = (_t(ui, "btn_admin") or "").strip()
         if admin_label:
             mapping[admin_label] = REPLY_ACTION_ADMIN
+        # Legacy: stale ReplyKeyboard «مینی‌اپ» → Open hint (no web_app row)
         mini_label = (_t(ui, "btn_miniapp") or "").strip()
         if mini_label:
             mapping.setdefault(mini_label, REPLY_ACTION_MINIAPP)
@@ -1049,7 +1050,7 @@ def reply_action_map(
             profile=profile if (show_reseller_creds and not is_reseller_bot) else None,
         ):
             mapping[(text or "").strip()] = key
-        # Legacy: stale ReplyKeyboard «مینی‌اپ» still opens the inline path
+        # Legacy: stale ReplyKeyboard «مینی‌اپ» → Open hint (no web_app row)
         if not is_reseller_bot:
             mini_label = (_t(ui, "btn_miniapp") or "").strip()
             if mini_label:
