@@ -1037,11 +1037,7 @@ def admin_plan_kind_keyboard(
 ) -> InlineKeyboardMarkup:
     """Admin plans — kind step for the chosen audience."""
     aud = (audience or "users").strip()
-    back = _ikb(
-        "⬅️ مخاطب",
-        callback_data="adm:plans",
-        style=_style(ui, "back"),
-    )
+    back = back_button(ui, "adm:plans")
     if aud == "resellers":
         rows = [
             [
@@ -1486,7 +1482,7 @@ def admin_home(ui: dict | None = None) -> InlineKeyboardMarkup:
 
     Kept for rare edit_text fallbacks; callers should migrate to reply KB.
     """
-    back = InlineKeyboardButton(text="⬅️ منوی اصلی", callback_data="menu:home")
+    back = back_button(ui, "menu:home")
     return InlineKeyboardMarkup(inline_keyboard=[[back]])
 
 
@@ -1576,11 +1572,7 @@ def admin_users_plans_overview_keyboard(
     rows = rows[:-3] + chunk_buttons([row[0] for row in rows[-3:]], cols=2)
     rows.append(
         [
-            _ikb(
-                "⬅️ مخاطب پلن",
-                callback_data="adm:plans",
-                style=_style(ui, "back"),
-            )
+            back_button(ui, "adm:plans")
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -1655,11 +1647,7 @@ def admin_resellers_plans_overview_keyboard(
         )
     rows.append(
         [
-            _ikb(
-                "⬅️ مخاطب پلن",
-                callback_data="adm:plans",
-                style=_style(ui, "back"),
-            )
+            back_button(ui, "adm:plans")
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -1783,11 +1771,7 @@ def admin_plans_list_keyboard(
     if back_callback:
         rows.append(
             [
-                _ikb(
-                    "⬅️ پلن‌های کاربران",
-                    callback_data=back_callback,
-                    style=_style(ui, "back"),
-                )
+                back_button(ui, back_callback)
             ]
         )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -1846,11 +1830,7 @@ def admin_reseller_plans_list_keyboard(
     if back_callback:
         rows.append(
             [
-                _ikb(
-                    "⬅️ پلن‌های نمایندگان",
-                    callback_data=back_callback,
-                    style=_style(ui, "back"),
-                )
+                back_button(ui, back_callback)
             ]
         )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -1964,7 +1944,7 @@ def admin_reseller_actions(
         ]
     )
     rows.append(
-        [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="adm:resellers:list:0")]
+        [back_button(None, "adm:resellers:list:0")]
     )
     return InlineKeyboardMarkup(inline_keyboard=pack_detail_rows(rows))
 
@@ -1993,10 +1973,7 @@ def admin_reseller_risk_tag_keyboard(
         rows.append(row)
     rows.append(
         [
-            InlineKeyboardButton(
-                text="⬅️ بازگشت",
-                callback_data=f"adm:resellers:view:{user_id}",
-            )
+            back_button(None, f"adm:resellers:view:{user_id}")
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -2045,10 +2022,7 @@ def admin_reseller_capacity_adjust_keyboard(
                 )
             ],
             [
-                InlineKeyboardButton(
-                    text="⬅️ بازگشت",
-                    callback_data=f"adm:resellers:view:{user_id}",
-                )
+                back_button(None, f"adm:resellers:view:{user_id}")
             ],
         ]
     )
@@ -2099,10 +2073,7 @@ def admin_reseller_services_keyboard(
         rows.append(nav)
     rows.append(
         [
-            InlineKeyboardButton(
-                text="⬅️ بازگشت",
-                callback_data=f"adm:resellers:view:{reseller_id}",
-            )
+            back_button(None, f"adm:resellers:view:{reseller_id}")
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -2196,10 +2167,7 @@ def admin_user_actions(
         )
     rows.append(
         [
-            InlineKeyboardButton(
-                text="⬅️ بازگشت",
-                callback_data="adm:users:list:0",
-            )
+            back_button(ui, "adm:users:list:0")
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -2226,7 +2194,7 @@ def admin_user_risk_tag_keyboard(user_id: int, *, current: str | None = None) ->
     if row:
         rows.append(row)
     rows.append(
-        [InlineKeyboardButton(text="⬅️ بازگشت", callback_data=f"adm:users:view:{user_id}")]
+        [back_button(None, f"adm:users:view:{user_id}")]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -2245,7 +2213,7 @@ def admin_user_services_keyboard(
             ]
         )
     rows.append(
-        [InlineKeyboardButton(text="⬅️ بازگشت", callback_data=f"adm:users:view:{user_id}")]
+        [back_button(None, f"adm:users:view:{user_id}")]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -2260,7 +2228,7 @@ def admin_user_service_actions(user_id: int, service_id: int) -> InlineKeyboardM
     ]
     rows = chunk_buttons(actions, cols=2)
     rows.append(
-        [InlineKeyboardButton(text="⬅️ سرویس‌ها", callback_data=f"adm:users:svcs:{user_id}")]
+        [back_button(None, f"adm:users:svcs:{user_id}")]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -2328,10 +2296,7 @@ def admin_user_service_adjust_keyboard(
                 )
             ],
             [
-                InlineKeyboardButton(
-                    text="⬅️ بازگشت",
-                    callback_data=f"adm:users:svc:{user_id}:{service_id}",
-                )
+                back_button(None, f"adm:users:svc:{user_id}:{service_id}")
             ],
         ]
     )

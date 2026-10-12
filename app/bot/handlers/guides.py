@@ -51,7 +51,7 @@ def guides_list_keyboard(
         buttons.append(InlineKeyboardButton(**kwargs))
     rows = kb.chunk_buttons(buttons, cols=2)
     if back_callback:
-        rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data=back_callback)])
+        rows.append([kb.back_button(ui, back_callback)])
     else:
         rows.append([InlineKeyboardButton(text="🏠 منو", callback_data="menu:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -71,7 +71,7 @@ def guide_detail_keyboard(
             label = kb._label_or(ui, "btn_guide_open_link", "🔗 باز کردن لینک اشتراک").strip()[:64]
             rows.append([kb._ikb(label, url=url, ui=ui, label_key="btn_guide_open_link")])
     back = f"guide:list:{int(svc_id or 0)}"
-    rows.append([InlineKeyboardButton(text="⬅️ فهرست آموزش", callback_data=back)])
+    rows.append([kb.back_button(ui, back)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

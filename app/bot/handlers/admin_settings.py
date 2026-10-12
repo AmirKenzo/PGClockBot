@@ -403,8 +403,8 @@ def _preview(value: str | None, *, limit: int = 120) -> str:
     return text
 
 
-def _back_row(*buttons: tuple[str, str]) -> list[InlineKeyboardButton]:
-    return [InlineKeyboardButton(text=t, callback_data=c) for t, c in buttons]
+def _back_row(callback_data: str, ui: dict | None = None) -> list[InlineKeyboardButton]:
+    return [kb.back_button(ui, callback_data)]
 
 
 def _kb(rows: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
@@ -502,7 +502,7 @@ async def _render_section(callback: CallbackQuery, session: AsyncSession, sec_id
         rows.append(
             [InlineKeyboardButton(text=title, callback_data=f"adm:st:sub:{sec_id}:{sub_id}")]
         )
-    rows.append(_back_row(("⬅️ بازگشت", "adm:st:hub")))
+    rows.append(_back_row("adm:st:hub"))
     if callback.message:
         await callback.message.edit_text(
             f"⚙️ <b>{sec['title']}</b>\nزیر‌بخش را انتخاب کنید:",
@@ -530,7 +530,7 @@ async def _render_fields(
     rows = [[_field_button(ui, k, lab, kind)] for k, lab, kind in fields]
     if extra_rows:
         rows.extend(extra_rows)
-    rows.append(_back_row(("⬅️ بازگشت", back_cb)))
+    rows.append(_back_row(back_cb))
     if callback.message:
         await callback.message.edit_text(
             f"<b>{title}</b>\nبرای تغییر، روی مورد بزنید.",
@@ -554,7 +554,7 @@ async def _render_sub(callback: CallbackQuery, session: AsyncSession, sec_id: st
         label = "فشرده (جفتی)" if layout == "compact" else "کلاسیک (تکی)"
         rows = [
             [InlineKeyboardButton(text=f"حالت: {label}", callback_data="adm:st:menu:layout")],
-            _back_row(("⬅️ بازگشت", back)),
+            _back_row(back),
         ]
         if callback.message:
             await callback.message.edit_text(
@@ -613,7 +613,7 @@ async def _render_menu_order(callback: CallbackQuery, session: AsyncSession, bac
         if i < len(order) - 1:
             row.append(InlineKeyboardButton(text="⬇️", callback_data=f"adm:st:menu:dn:{i}"))
         rows.append(row)
-    rows.append(_back_row(("⬅️ بازگشت", back)))
+    rows.append(_back_row(back))
     if callback.message:
         await callback.message.edit_text(
             "<b>منوی فعال</b>\nبا فلش ترتیب را عوض کنید.\n"
@@ -639,7 +639,7 @@ async def _render_supports(callback: CallbackQuery, session: AsyncSession) -> No
         )
     if not contacts:
         rows.append([InlineKeyboardButton(text="لیست خالی است", callback_data="adm:st:noop")])
-    rows.append(_back_row(("⬅️ بازگشت", "adm:st:hub")))
+    rows.append(_back_row("adm:st:hub"))
     if callback.message:
         await callback.message.edit_text(
             "🎧 <b>پشتیبان‌ها</b>\n"
@@ -657,7 +657,7 @@ async def _render_notify(callback: CallbackQuery, session: AsyncSession) -> None
         rows.append(
             [InlineKeyboardButton(text=f"{mark} {title}", callback_data=f"adm:st:tog:{key}")]
         )
-    rows.append(_back_row(("⬅️ بازگشت", "adm:st:hub")))
+    rows.append(_back_row("adm:st:hub"))
     if callback.message:
         await callback.message.edit_text(
             "🔔 <b>اعلان‌های ادمین اصلی</b>\n"
@@ -697,7 +697,7 @@ async def _render_trial(callback: CallbackQuery, session: AsyncSession) -> None:
         [InlineKeyboardButton(text="حجم (گیگ)", callback_data="adm:st:trial:gb")],
         [InlineKeyboardButton(text="تمپلیت پاسارگارد", callback_data="adm:st:trial:tpl")],
         [InlineKeyboardButton(text="گروه پاسارگارد", callback_data="adm:st:trial:grp")],
-        _back_row(("⬅️ پلن‌ها", "adm:plans:kind:users:trial")),
+        _back_row("adm:plans:kind:users:trial"),
     ]
     if callback.message:
         await callback.message.edit_text(
@@ -763,7 +763,7 @@ async def _fields_panel(
     rows = [[_field_button(ui, k, lab, kind)] for k, lab, kind in fields]
     if extra_rows:
         rows.extend(extra_rows)
-    rows.append(_back_row(("⬅️ بازگشت", back_cb)))
+    rows.append(_back_row(back_cb))
     return f"<b>{title}</b>\nبرای تغییر، روی مورد بزنید.", _kb(rows)
 
 
@@ -783,7 +783,7 @@ async def _settings_location_panel(
             rows.append(
                 [InlineKeyboardButton(text=f"{mark} {title}", callback_data=f"adm:st:tog:{key}")]
             )
-        rows.append(_back_row(("⬅️ بازگشت", "adm:st:hub")))
+        rows.append(_back_row("adm:st:hub"))
         return (
             "🔔 <b>اعلان‌های ادمین اصلی</b>\n"
             "روشن/خاموش کنید (مستقل از نمایندگان):",
@@ -803,7 +803,7 @@ async def _settings_location_panel(
                     )
                 ]
             )
-        rows.append(_back_row(("⬅️ بازگشت", "adm:st:hub")))
+        rows.append(_back_row("adm:st:hub"))
         return f"⚙️ <b>{sec['title']}</b>\nزیر‌بخش را انتخاب کنید:", _kb(rows)
 
     sec = SECTIONS.get(sec_id) or {}
@@ -816,7 +816,7 @@ async def _settings_location_panel(
     if payload == "trial":
         return (
             "🧪 <b>پلن تست</b>\nاز دکمه زیر ادامه دهید.",
-            _kb([[InlineKeyboardButton(text="⬅️ بازگشت به پلن تست", callback_data="adm:st:sub:service:trial")]]),
+            _kb([[kb.back_button(None, "adm:st:sub:service:trial")]]),
         )
     if payload == "custom":
         ui = await get_all_settings(session)
@@ -841,7 +841,7 @@ async def _settings_location_panel(
     # menu_layout / menu_order — one Back into that sub (callback still works with nav kept)
     return (
         f"<b>{title}</b>",
-        _kb([[InlineKeyboardButton(text="⬅️ بازگشت", callback_data=f"adm:st:sub:{sec_id}:{sub_id}")]]),
+        _kb([[kb.back_button(None, f"adm:st:sub:{sec_id}:{sub_id}")]]),
     )
 
 
@@ -1003,7 +1003,7 @@ def _search_results_panel(query: str) -> Panel:
     rows.append(
         [InlineKeyboardButton(text="🔍 جستجوی دیگر", callback_data="adm:st:find")]
     )
-    rows.append(_back_row(("⬅️ بازگشت", "adm:st:hub")))
+    rows.append(_back_row("adm:st:hub"))
     head = (
         f"🔍 <b>نتیجه‌ها</b> ({len(hits)})\nروی گزینه بزنید تا همان بخش باز شود."
         if hits
@@ -1355,7 +1355,7 @@ async def support_view(
             InlineKeyboardButton(text="ویرایش", callback_data=f"adm:st:sup:edit:{cid}"),
             InlineKeyboardButton(text="حذف", callback_data=f"adm:st:sup:del:{cid}"),
         ],
-        _back_row(("⬅️ لیست", "adm:st:sec:support")),
+        _back_row("adm:st:sec:support"),
     ]
     if callback.message:
         await callback.message.edit_text(text, reply_markup=_kb(rows))
@@ -1404,7 +1404,7 @@ async def support_toggle(
             InlineKeyboardButton(text="ویرایش", callback_data=f"adm:st:sup:edit:{cid}"),
             InlineKeyboardButton(text="حذف", callback_data=f"adm:st:sup:del:{cid}"),
         ],
-        _back_row(("⬅️ لیست", "adm:st:sec:support")),
+        _back_row("adm:st:sec:support"),
     ]
     await callback.message.edit_text(text, reply_markup=_kb(rows))
 
@@ -1493,7 +1493,7 @@ async def support_color_set(
             InlineKeyboardButton(text="ویرایش", callback_data=f"adm:st:sup:edit:{cid}"),
             InlineKeyboardButton(text="حذف", callback_data=f"adm:st:sup:del:{cid}"),
         ],
-        _back_row(("⬅️ لیست", "adm:st:sec:support")),
+        _back_row("adm:st:sec:support"),
     ]
     await callback.message.edit_text(text, reply_markup=_kb(rows))
 
@@ -1733,7 +1733,7 @@ async def trial_pick_tpl(
         )
     if not rows:
         rows.append([InlineKeyboardButton(text="تمپلیتی نیست", callback_data="adm:st:sub:service:trial")])
-    rows.append(_back_row(("⬅️ بازگشت", "adm:st:sub:service:trial")))
+    rows.append(_back_row("adm:st:sub:service:trial"))
     if callback.message:
         await callback.message.edit_text("تمپلیت را انتخاب کنید:", reply_markup=_kb(rows))
 
@@ -1810,7 +1810,7 @@ async def _show_trial_groups(callback: CallbackQuery, state: FSMContext) -> None
         )
     else:
         rows.append([InlineKeyboardButton(text="گروهی نیست", callback_data="adm:st:sub:service:trial")])
-    rows.append(_back_row(("⬅️ بازگشت", "adm:st:sub:service:trial")))
+    rows.append(_back_row("adm:st:sub:service:trial"))
     if callback.message:
         await callback.message.edit_text("گروه(ها) را انتخاب کنید:", reply_markup=_kb(rows))
 

@@ -189,8 +189,8 @@ def _kind_btn_style(ui: dict | None, kind: str) -> str | None:
 def _ib(text: str, cb: str, style: str | None = None) -> InlineKeyboardButton:
     return kb._ikb(text, callback_data=cb, style=style)
 
-def _back_row(label: str, cb: str, style: str | None = None) -> list[InlineKeyboardButton]:
-    return [_ib(label, cb, style=style)]
+def _back_row(cb: str, ui: dict | None = None) -> list[InlineKeyboardButton]:
+    return [kb.back_button(ui, cb)]
 
 async def _persist(session: AsyncSession) -> None:
     await session.commit()
@@ -358,7 +358,7 @@ async def _build_custom_screen(session: AsyncSession) -> tuple[str, InlineKeyboa
         else:
             rows.append([_ib(label, f"adm:plans:edit:{key}", st)])
     rows.append([_ib("🔗 اتصال پاسارگارد", "adm:plans:custom:pg", st)])
-    rows.append(_back_row("⬅️ پلن‌های کاربران", BACK_USERS_KIND, kb._style(ui, "back")))
+    rows.append(_back_row(BACK_USERS_KIND, ui))
     tpl = (ui.get("custom_plan_template_id") or "").strip()
     groups = (ui.get("custom_plan_group_ids") or "").strip()
     link = f"تمپلیت #{tpl}" if tpl else (f"گروه {groups}" if groups else "بدون اتصال")
@@ -413,7 +413,7 @@ async def _build_trial_screen(session: AsyncSession) -> tuple[str, InlineKeyboar
         [_ib("حجم (گیگ)", "adm:plans:trial:gb", st)],
         [_ib("تمپلیت پاسارگارد", "adm:plans:trial:tpl", st)],
         [_ib("گروه پاسارگارد", "adm:plans:trial:grp", st)],
-        _back_row("⬅️ پلن‌های کاربران", BACK_USERS_KIND, kb._style(ui, "back")),
+        _back_row(BACK_USERS_KIND, ui),
     ]
     return f"🧪 <b>پلن تست</b>\n\n{body}", _kb(rows)
 
@@ -449,7 +449,7 @@ async def _build_wholesale_screen(session: AsyncSession) -> tuple[str, InlineKey
         rows.append(
             [_ib(f"🗑 پله {t['min']}→{t['percent']}٪", f"adm:plans:wholesale:del:{i}", st)]
         )
-    rows.append(_back_row("⬅️ پلن‌های کاربران", BACK_USERS_KIND, kb._style(ui, "back")))
+    rows.append(_back_row(BACK_USERS_KIND, ui))
     text = (
         "📦 <b>فروش عمده</b>\n"
         f"{wholesale_description(ui)}\n\n"
@@ -1148,7 +1148,7 @@ async def trial_pick_tpl(callback: CallbackQuery, db_user: BotUser):
         rows.append(
             [InlineKeyboardButton(text="تمپلیتی نیست", callback_data=BACK_USERS_KIND)]
         )
-    rows.append(_back_row("⬅️ بازگشت", BACK_USERS_KIND))
+    rows.append(_back_row(BACK_USERS_KIND))
     await callback.answer()
     if callback.message:
         await callback.message.edit_text("تمپلیت را انتخاب کنید:", reply_markup=_kb(rows))
@@ -1220,7 +1220,7 @@ async def _show_trial_groups_plans(callback: CallbackQuery, state: FSMContext) -
         )
     else:
         rows.append([InlineKeyboardButton(text="گروهی نیست", callback_data=BACK_USERS_KIND)])
-    rows.append(_back_row("⬅️ بازگشت", BACK_USERS_KIND))
+    rows.append(_back_row(BACK_USERS_KIND))
     if callback.message:
         await callback.message.edit_text("گروه(ها) را انتخاب کنید:", reply_markup=_kb(rows))
 
@@ -1294,7 +1294,7 @@ async def _custom_pg_summary(session: AsyncSession) -> tuple[str, InlineKeyboard
         rows.append(
             [InlineKeyboardButton(text="حذف اتصال", callback_data="adm:plans:custom:clearlink")]
         )
-    rows.append(_back_row("⬅️ پلن دلخواه", BACK_USERS_KIND))
+    rows.append(_back_row(BACK_USERS_KIND, ui))
     return text, _kb(rows)
 
 @router.callback_query(F.data == "adm:plans:custom:pg")
@@ -1359,7 +1359,7 @@ async def custom_pick_tpl(callback: CallbackQuery, db_user: BotUser):
         )
     if not rows:
         rows.append([InlineKeyboardButton(text="تمپلیتی نیست", callback_data="adm:plans:custom:pg")])
-    rows.append(_back_row("⬅️ بازگشت", "adm:plans:custom:pg"))
+    rows.append(_back_row("adm:plans:custom:pg"))
     await callback.answer()
     if callback.message:
         await callback.message.edit_text("تمپلیت:", reply_markup=_kb(rows))
@@ -1422,7 +1422,7 @@ async def _show_custom_groups_plans(callback: CallbackQuery, state: FSMContext) 
         )
     else:
         rows.append([InlineKeyboardButton(text="گروهی نیست", callback_data="adm:plans:custom:pg")])
-    rows.append(_back_row("⬅️ بازگشت", "adm:plans:custom:pg"))
+    rows.append(_back_row("adm:plans:custom:pg"))
     if callback.message:
         await callback.message.edit_text(
             f"گروه‌ها:\nانتخاب: {', '.join(str(x) for x in selected) or '—'}",
@@ -1531,7 +1531,7 @@ def _resplan_detail_keyboard(plan: ResellerPlan) -> InlineKeyboardMarkup:
                     )
                 ],
                 [InlineKeyboardButton(text="🗑 حذف", callback_data=f"adm:resplan:delask:{pid}")],
-                _back_row("⬅️ پلن‌های نمایندگان", "adm:plans:aud:resellers"),
+                _back_row("adm:plans:aud:resellers"),
             ]
         )
         return _kb(_pack_resplan_detail(rows))
@@ -1605,7 +1605,7 @@ def _resplan_detail_keyboard(plan: ResellerPlan) -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton(text="🗑 حذف", callback_data=f"adm:resplan:delask:{pid}")],
-            _back_row("⬅️ پلن‌های نمایندگان", "adm:plans:aud:resellers"),
+            _back_row("adm:plans:aud:resellers"),
         ]
     )
     return _kb(_pack_resplan_detail(rows))
@@ -1883,7 +1883,7 @@ async def _show_resplan_groups(callback: CallbackQuery, state: FSMContext, plan_
                 )
             ]
         )
-    rows.append(_back_row("⬅️ پلن", f"adm:resplan:view:{plan_id}"))
+    rows.append(_back_row(f"adm:resplan:view:{plan_id}"))
     if callback.message:
         await callback.message.edit_text(
             "گروه(ها) را انتخاب کنید (حداقل یک گروه الزامی):",
@@ -1973,7 +1973,7 @@ async def resplan_perms_screen(
                 )
             ]
         )
-    rows.append(_back_row("⬅️ پلن", f"adm:resplan:view:{plan_id}"))
+    rows.append(_back_row(f"adm:resplan:view:{plan_id}"))
     await callback.answer()
     if callback.message:
         await callback.message.edit_text(
@@ -2022,7 +2022,7 @@ async def resplan_tog_perm(callback: CallbackQuery, session: AsyncSession, db_us
                 )
             ]
         )
-    rows.append(_back_row("⬅️ پلن", f"adm:resplan:view:{plan_id}"))
+    rows.append(_back_row(f"adm:resplan:view:{plan_id}"))
     if callback.message:
         await callback.message.edit_text(
             "🔐 <b>دسترسی‌های پلن</b>\nوب و ربات نماینده یکسان است.",
@@ -2413,7 +2413,7 @@ async def _show_resplan_role_picker(
         if edit_plan_id
         else "adm:plans:aud:resellers"
     )
-    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data=back)])
+    rows.append([kb.back_button(None, back)])
     await safe_edit_text(
         message,
         "🎭 <b>نقش پاسارگارد الزامی است</b>\n"

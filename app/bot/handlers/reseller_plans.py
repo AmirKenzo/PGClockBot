@@ -847,7 +847,7 @@ async def res_plan_cat_pick(
             ]
         )
     rows.append(
-        [InlineKeyboardButton(text="⬅️ بازگشت", callback_data=f"res:plan:view:{plan.id}")]
+        [kb.back_button(None, f"res:plan:view:{plan.id}")]
     )
     await callback.answer()
     if callback.message:

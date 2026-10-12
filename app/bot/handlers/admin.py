@@ -262,7 +262,7 @@ async def _custom_link_summary(session: AsyncSession) -> tuple[str, InlineKeyboa
         )
     rows.append(
         [
-            InlineKeyboardButton(text="⬅️ پلن دلخواه", callback_data="adm:plans:aud:users"),
+            kb.back_button(ui, "adm:plans:aud:users"),
             InlineKeyboardButton(text="پلن‌ها", callback_data="adm:plans"),
         ]
     )
@@ -378,11 +378,7 @@ def _plan_detail_keyboard(p: Plan, ui: dict | None = None) -> InlineKeyboardMark
     )
     rows.append(
         [
-            kb._ikb(
-                "⬅️ پلن‌های کاربران",
-                callback_data="adm:plans:aud:users",
-                style=kb._style(ui, "back"),
-            )
+            kb.back_button(ui, "adm:plans:aud:users")
         ]
     )
     return InlineKeyboardMarkup(
@@ -692,7 +688,7 @@ async def adm_order_view(callback: CallbackQuery, session: AsyncSession, db_user
         text += f"پرداخت: #{pay.id} ({pay.status})\n"
     ui = await get_all_settings(session)
     rows = _order_actions(order, pay, ui)
-    rows.append([InlineKeyboardButton(text="⬅️ لیست سفارش‌ها", callback_data="adm:orders")])
+    rows.append([kb.back_button(ui, "adm:orders")])
     if callback.message:
         await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
@@ -807,7 +803,7 @@ async def order_approve_cb(callback: CallbackQuery, session: AsyncSession, db_us
     text = f"🛒 سفارش #{order.id}\nوضعیت: <b>{order_status_fa(order.status)}</b>\n✅ انجام شد"
     if callback.message:
         try:
-            await callback.message.edit_text(text, reply_markup=kb.order_review(order.id) if order.status != OrderStatus.DELIVERED.value else InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ سفارش‌ها", callback_data="adm:orders")]]))
+            await callback.message.edit_text(text, reply_markup=kb.order_review(order.id) if order.status != OrderStatus.DELIVERED.value else InlineKeyboardMarkup(inline_keyboard=[[kb.back_button(None, "adm:orders")]]))
         except Exception:
             pass
 
@@ -858,7 +854,7 @@ async def order_reject_cb(callback: CallbackQuery, session: AsyncSession, db_use
             await callback.message.edit_text(
                 f"🛒 سفارش #{order_id}\nوضعیت: <b>ردشده</b>",
                 reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[[InlineKeyboardButton(text="⬅️ سفارش‌ها", callback_data="adm:orders")]]
+                    inline_keyboard=[[kb.back_button(None, "adm:orders")]]
                 ),
             )
         except Exception:
@@ -1399,7 +1395,7 @@ async def _show_template_picker(callback: CallbackQuery, *, plan_id: int) -> Non
             [InlineKeyboardButton(text="تمپلیتی نیست — از وب‌پنل بسازید", callback_data="adm:plans")]
         )
     back = f"adm:plan:view:{plan_id}" if plan_id else "adm:plans"
-    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data=back)])
+    rows.append([kb.back_button(None, back)])
     text = "📋 یک تمپلیت پاسارگارد انتخاب کنید:"
     if callback.message:
         await safe_edit_text(
@@ -1448,7 +1444,7 @@ async def _show_group_picker(callback: CallbackQuery, state: FSMContext, *, plan
             ]
         )
     back = f"adm:plan:view:{plan_id}" if plan_id else "adm:plans"
-    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data=back)])
+    rows.append([kb.back_button(None, back)])
     text = (
         "📁 گروه‌های اینباند را انتخاب کنید (می‌توانید چندتا بزنید):\n"
         f"انتخاب‌شده: {', '.join(str(x) for x in selected) or '—'}"
@@ -1669,9 +1665,7 @@ async def _show_plan_category_picker(
             )
         rows.append(
             [
-                InlineKeyboardButton(
-                    text="⬅️ رنگ دکمه", callback_data="adm:plan:new:backcolor"
-                )
+                kb.back_button(None, "adm:plan:new:backcolor")
             ]
         )
     else:
@@ -1699,9 +1693,7 @@ async def _show_plan_category_picker(
             )
         rows.append(
             [
-                InlineKeyboardButton(
-                    text="⬅️ بازگشت", callback_data=f"adm:plan:view:{plan_id}"
-                )
+                kb.back_button(None, f"adm:plan:view:{plan_id}")
             ]
         )
     if target.message:
@@ -2087,7 +2079,7 @@ async def _show_custom_template_picker(callback: CallbackQuery) -> None:
         rows.append(
             [InlineKeyboardButton(text="تمپلیتی نیست — از وب‌پنل بسازید", callback_data="adm:custom")]
         )
-    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="adm:custom")])
+    rows.append([kb.back_button(None, "adm:custom")])
     if callback.message:
         await callback.message.edit_text(
             "📋 تمپلیت پاسارگارد برای پلن دلخواه:",
@@ -2130,7 +2122,7 @@ async def _show_custom_group_picker(callback: CallbackQuery, state: FSMContext) 
                 )
             ]
         )
-    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="adm:custom")])
+    rows.append([kb.back_button(None, "adm:custom")])
     text = (
         "📁 گروه‌های اینباند برای پلن دلخواه:\n"
         f"انتخاب‌شده: {', '.join(str(x) for x in selected) or '—'}"
@@ -2803,10 +2795,7 @@ async def adm_users_services(
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[
                         [
-                            InlineKeyboardButton(
-                                text="⬅️ بازگشت",
-                                callback_data=f"adm:users:view:{user_id}",
-                            )
+                            kb.back_button(None, f"adm:users:view:{user_id}")
                         ]
                     ]
                 ),
@@ -3018,10 +3007,7 @@ async def adm_users_service_delete(
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
-                        InlineKeyboardButton(
-                            text="⬅️ سرویس‌ها",
-                            callback_data=f"adm:users:svcs:{user_id}",
-                        )
+                        kb.back_button(None, f"adm:users:svcs:{user_id}")
                     ]
                 ]
             ),
@@ -4171,10 +4157,7 @@ async def adm_resellers_services(
     back_kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="⬅️ بازگشت",
-                    callback_data=f"adm:resellers:view:{user_id}",
-                )
+                kb.back_button(None, f"adm:resellers:view:{user_id}")
             ]
         ]
     )
@@ -4308,7 +4291,7 @@ async def adm_resapp_list(callback: CallbackQuery, session: AsyncSession, db_use
             f"{(plan.name if plan else '?')}"
         )
         rows.append([InlineKeyboardButton(text=label[:60], callback_data=f"adm:resapp:view:{a.id}")])
-    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="nv:adm:resellers")])
+    rows.append([kb.back_button(None, "nv:adm:resellers")])
     if callback.message:
         await callback.message.edit_text(
             "📋 درخواست‌های باز (پرداخت / تأیید):",

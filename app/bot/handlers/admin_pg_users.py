@@ -168,7 +168,7 @@ def _user_actions_kb(uid: int, *, back: str = "adm:pg:users") -> InlineKeyboardM
             [
                 InlineKeyboardButton(text="🗑 حذف", callback_data=f"adm:pg:u:{uid}:delask"),
             ],
-            [InlineKeyboardButton(text="⬅️ بازگشت", callback_data=back)],
+            [kb.back_button(None, back)],
         ]
     )
 
@@ -180,7 +180,7 @@ def _edit_menu_kb(uid: int) -> InlineKeyboardMarkup:
                 [InlineKeyboardButton(text="📦 تغییر حجم (گیگ)", callback_data=f"adm:pg:u:{uid}:ed:gb")],
                 [InlineKeyboardButton(text="📅 تغییر مدت (روز)", callback_data=f"adm:pg:u:{uid}:ed:days")],
                 [InlineKeyboardButton(text="📁 تغییر گروه‌ها", callback_data=f"adm:pg:u:{uid}:ed:grps")],
-                [InlineKeyboardButton(text="⬅️ کارت کاربر", callback_data=f"adm:pg:u:{uid}")],
+                [kb.back_button(None, f"adm:pg:u:{uid}")],
             ]
         )
     )
@@ -955,7 +955,7 @@ async def pg_create_menu(
         inline_keyboard=[
             [InlineKeyboardButton(text="📋 از تمپلیت", callback_data="adm:pg:create:tpl")],
             [InlineKeyboardButton(text="🛠 سفارشی (گروه + حجم + روز)", callback_data="adm:pg:create:custom")],
-            [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="adm:pg:users")],
+            [kb.back_button(None, "adm:pg:users")],
         ]
     )
     if callback.message:
@@ -1016,7 +1016,7 @@ async def pg_create_tpl_pick(
         rows.append(
             [InlineKeyboardButton(text="تمپلیتی نیست", callback_data="adm:pg:create")]
         )
-    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="adm:pg:create")])
+    rows.append([kb.back_button(None, "adm:pg:create")])
     if callback.message:
         await safe_edit_text(
             callback.message,
@@ -1141,7 +1141,7 @@ async def _show_create_group_picker(
         )
     else:
         rows.append([InlineKeyboardButton(text="گروهی نیست", callback_data=back_cb)])
-    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data=back_cb)])
+    rows.append([kb.back_button(None, back_cb)])
     text = (
         "📁 گروه‌ها را انتخاب کنید (چندتایی):\n"
         f"انتخاب‌شده: {', '.join(str(x) for x in selected) or '—'}"
