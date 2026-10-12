@@ -154,6 +154,10 @@ def test_client_uses_custom_route_own_origin_and_fresh_public_request(
         pg.settings = SimpleNamespace(pg_subscription_path=configured)
         pg.base_url = "https://pg.example:8443/dashboard"
         pg._token = "private-owner-token"
+        # This fixture bypasses __init__; target validation is separately tested.
+        pg._validated_base = pg.base_url
+        pg._validated_until = float("inf")
+        pg._cache_partition = "subscription-test-client"
         pg._headers = AsyncMock(
             side_effect=AssertionError("public read must not authenticate")
         )

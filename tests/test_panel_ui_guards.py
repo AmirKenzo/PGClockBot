@@ -144,10 +144,14 @@ class FieldHintAndPlaceholderTests(unittest.TestCase):
             r'(?s)<strong>آیکن وب‌اپ</strong>\s*<small class="muted">',
         )
 
-    def test_css_cache_busted_by_app_version(self):
-        src = (ROOT / "app/web/templates/base.html").read_text(encoding="utf-8")
-        self.assertIn('href="/static/panel.css?v={{ app_version }}"', src)
-        self.assertIn('src="/static/panel.js?v={{ app_version }}"', src)
+    def test_css_cache_busted_by_app_version(self) -> None:
+        from app.services.panel_assets import get_panel_asset_cache_key
+        from test_panel_safe_speed import render_dashboard_shell
+
+        html = render_dashboard_shell("home.html")
+        self.assertRegex(html, r'href="/static/panel\.css\?v=[^" ]+"')
+        self.assertIn(f'src="/static/panel.js?v={get_panel_asset_cache_key("panel.js")}"', html)
+        self.assertIn(f'src="/static/panel_widget_request.js?v={get_panel_asset_cache_key("panel_widget_request.js")}"', html)
 
     def test_shop_settings_has_live_preview(self):
         shop = (ROOT / "app/web/templates/shop_settings.html").read_text(encoding="utf-8")
