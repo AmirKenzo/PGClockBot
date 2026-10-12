@@ -137,7 +137,17 @@ class TestAutoApproveAfterPayment(unittest.TestCase):
 class TestUiPolish(unittest.TestCase):
     def test_plans_no_duplicate_flash(self):
         html = (ROOT / "app/web/templates/plans.html").read_text(encoding="utf-8")
-        self.assertNotIn('{% if flash_ok %}<div class="flash ok">{{ flash_ok }}</div>{% endif %}', html)
+        # Page-level flash must stay in base.html only. Category create/edit
+        # flash is scoped inside the modal (settings-modal-flash).
+        self.assertNotIn(
+            '{% if flash_ok %}<div class="flash ok">{{ flash_ok }}</div>{% endif %}',
+            html.split("modal-plan-categories", 1)[0],
+        )
+        self.assertIn("settings-modal-flash", html)
+        self.assertIn("open_categories and (flash_ok or flash_err)", html)
+        base = (ROOT / "app/web/templates/base.html").read_text(encoding="utf-8")
+        self.assertIn("_catalog_modal_open", base)
+        self.assertIn("open_categories", base)
 
     def test_control_bg_css_var(self):
         css = (ROOT / "app/web/static/panel.css").read_text(encoding="utf-8")
