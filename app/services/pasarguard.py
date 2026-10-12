@@ -26,6 +26,15 @@ class PasarGuardError(Exception):
         return friendly_pg_error(base, status_code=self.status_code)[:500]
 
 
+def is_pg_not_found(exc: BaseException) -> bool:
+    """True when PasarGuard reports the target resource is missing (HTTP 404).
+
+    Used for idempotent DELETE: a clean 404 means the desired end-state
+    (resource gone) is already true — not a transport/outage failure.
+    """
+    return isinstance(exc, PasarGuardError) and exc.status_code == 404
+
+
 def is_pg_permission_denied(exc: Exception) -> bool:
     """True when PasarGuard refused a resource (not a transport outage).
 
