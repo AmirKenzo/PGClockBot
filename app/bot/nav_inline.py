@@ -452,6 +452,7 @@ def loyalty_hub_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup:
             text,
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, style_map[key], fallback="primary"),
         )
         for key, text in entries
@@ -569,6 +570,7 @@ def admin_groups_hub_keyboard(
             text,
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _reply_admin_hub_entries(ui)
@@ -622,6 +624,7 @@ def admin_ops_hub_keyboard(
             with_badge(text, badge_for.get(key, 0)),
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _reply_admin_ops_entries(ui)
@@ -650,6 +653,7 @@ def admin_people_hub_keyboard(
             text,
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _reply_admin_people_entries(
@@ -680,6 +684,7 @@ def admin_product_hub_keyboard(
             text,
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _reply_admin_product_entries(ui, pg_features=pg_features)
@@ -708,6 +713,7 @@ def admin_system_hub_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup:
             text,
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _reply_admin_system_entries(ui)
@@ -748,6 +754,7 @@ def pg_hub_keyboard(
             text,
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _pg_submenu_entries(
@@ -787,6 +794,7 @@ def admin_loyalty_manage_hub_keyboard(
             text,
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _admin_loyalty_submenu_entries(
@@ -822,6 +830,7 @@ def reseller_manage_hub_keyboard(
             with_badge(text, badge_for.get(key, 0)),
             callback_data=f"nv:res:ra:{key}",
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in entries
@@ -865,6 +874,7 @@ def admin_users_hub_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup:
             text,
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _admin_users_submenu_entries(ui)
@@ -891,6 +901,7 @@ def admin_resellers_hub_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup
             text,
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _admin_resellers_submenu_entries(ui)
@@ -925,6 +936,7 @@ def admin_settings_hub_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup:
                 text,
                 callback_data=cb,
                 ui=ui,
+                action=key,
                 style=_style(ui, key, fallback="primary"),
             )
         )
@@ -945,6 +957,7 @@ def admin_backup_hub_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup:
             text,
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _admin_backup_submenu_entries(ui)
@@ -961,6 +974,7 @@ def admin_broadcast_hub_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup
             text,
             callback_data=f"adm:broadcast:aud:{key.replace('bc_aud_', '', 1)}",
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _admin_broadcast_submenu_entries(ui)
@@ -989,6 +1003,7 @@ def admin_plans_audience_hub_keyboard(ui: dict | None = None) -> InlineKeyboardM
             text,
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _admin_plans_audience_entries(ui)
@@ -1019,6 +1034,7 @@ def admin_plans_kind_hub_keyboard(
             text,
             callback_data=cb_map[key],
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _admin_plans_list_entries(ui)
@@ -1037,6 +1053,7 @@ def admin_plans_add_type_hub_keyboard(
             text,
             callback_data=f"nv:adm:ra:{key}",
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _admin_plans_add_type_entries(audience, ui)
@@ -1057,6 +1074,7 @@ def reseller_settings_hub_keyboard(ui: dict | None = None) -> InlineKeyboardMark
             text,
             callback_data=f"nv:res:ra:{key}",
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _reseller_settings_submenu_entries(ui)
@@ -1072,6 +1090,7 @@ def reseller_plans_hub_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup:
             text,
             callback_data=f"nv:res:ra:{key}",
             ui=ui,
+            action=key,
             style=_style(ui, key, fallback="primary"),
         )
         for key, text in _reseller_plans_submenu_entries(ui)

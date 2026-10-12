@@ -243,10 +243,7 @@ async def support_list(callback: CallbackQuery, session: AsyncSession, db_user: 
     ]
     rows.append(
         [
-            InlineKeyboardButton(
-                text=ui.get("btn_back") or "⬅️ بازگشت",
-                callback_data="nv:s:home",
-            )
+            kb.back_button(ui, "nv:s:home")
         ]
     )
     text = "📋 تیکت‌های شما:"

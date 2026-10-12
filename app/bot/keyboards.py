@@ -490,6 +490,7 @@ def _ikb(
     style: str | None = None,
     ui: dict | None = None,
     label_key: str | None = None,
+    action: str | None = None,
     icon_custom_emoji_id: str | None = None,
     **extra,
 ) -> InlineKeyboardButton:
@@ -506,10 +507,10 @@ def _ikb(
         kwargs.pop("icon_custom_emoji_id", None)
         return InlineKeyboardButton(**kwargs)
     icon = icon_custom_emoji_id
-    if icon is None and ui is not None and (label_key or kwargs.get("icon_custom_emoji_id") is None):
+    if icon is None and ui is not None:
         from app.services.rich_text import button_icon_from_ui
 
-        icon = button_icon_from_ui(ui, label_key=label_key)
+        icon = button_icon_from_ui(ui, label_key=label_key, action=action)
     if icon and "icon_custom_emoji_id" not in kwargs:
         kwargs["icon_custom_emoji_id"] = str(icon)
     return InlineKeyboardButton(**kwargs)
@@ -519,6 +520,17 @@ def _style(ui: dict | None, button_id: str, *, fallback: str | None = None) -> s
     from app.services.button_styles import style_or_none
 
     return style_or_none(ui, button_id, fallback=fallback)
+
+
+def back_button(ui: dict | None, callback_data: str) -> InlineKeyboardButton:
+    """Back button with the configured label, premium icon and style."""
+    return _ikb(
+        _label_or(ui, "btn_back", "⬅️ بازگشت"),
+        callback_data=callback_data,
+        style=_style(ui, "back"),
+        ui=ui,
+        label_key="btn_back",
+    )
 
 
 def _plan_row_style(
@@ -1068,6 +1080,7 @@ def plans_keyboard(
                     style=_plan_row_style(
                         ui, p, kind=kind or fallback_kind, category=cat_obj
                     ),
+                    icon_custom_emoji_id=getattr(cat_obj, "icon_custom_emoji_id", None),
                 )
             ]
         )
@@ -1191,7 +1204,7 @@ def wholesale_confirm_keyboard(
                     style=_style(ui, "buy_continue", fallback="primary"),
                 )
             ],
-            [InlineKeyboardButton(text=_t(ui, "btn_back"), callback_data="shop:wholesale:qty")],
+            [back_button(ui, "shop:wholesale:qty")],
         ]
     )
 
@@ -1208,7 +1221,7 @@ def custom_gb_keyboard(
         ],
         [InlineKeyboardButton(text="✏️ ورود دستی حجم", callback_data="shop:custom:gb:input")],
         [InlineKeyboardButton(text="ادامه ← روزها", callback_data="shop:custom:gb:next")],
-        [InlineKeyboardButton(text=_t(ui, "btn_back"), callback_data="shop:list")],
+        [back_button(ui, "shop:list")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -1226,7 +1239,7 @@ def custom_days_keyboard(
             ],
             [InlineKeyboardButton(text="✏️ ورود دستی روز", callback_data="shop:custom:days:input")],
             [InlineKeyboardButton(text="✅ مشاهده قیمت و تأیید", callback_data="shop:custom:confirm")],
-            [InlineKeyboardButton(text=_t(ui, "btn_back"), callback_data="shop:custom")],
+            [back_button(ui, "shop:custom")],
         ]
     )
 
@@ -1246,7 +1259,6 @@ def custom_confirm_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup:
             ],
             [InlineKeyboardButton(text="✏️ تغییر روز", callback_data="shop:custom:gb:next")],
             [InlineKeyboardButton(text="✏️ تغییر حجم", callback_data="shop:custom")],
-            [InlineKeyboardButton(text=_t(ui, "btn_back"), callback_data="shop:custom:gb:next")],
         ]
     )
 
@@ -1265,7 +1277,7 @@ def plan_actions(plan_id: int, ui: dict | None = None) -> InlineKeyboardMarkup:
                     label_key="btn_buy_continue",
                 )
             ],
-            [InlineKeyboardButton(text=_t(ui, "btn_back"), callback_data="shop:list")],
+            [back_button(ui, "shop:list")],
         ]
     )
 
@@ -1702,10 +1714,7 @@ def admin_plans_add_type_keyboard(audience: str, ui: dict | None = None) -> Inli
         )
     rows.append(
         [
-            InlineKeyboardButton(
-                text=_label_or(ui, "btn_back", "بازگشت"),
-                callback_data=f"adm:plans:aud:{back_aud}",
-            )
+            back_button(ui, f"adm:plans:aud:{back_aud}")
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
