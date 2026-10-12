@@ -430,9 +430,14 @@ async def bulk_pg_user_action(
             elif action == "revoke":
                 await pg.revoke_sub_by_id(uid)
             elif action == "delete":
-                await pg.delete_user_by_id(uid)
-                from app.services.bot_user_admin import detach_local_services_for_pg_user
+                from app.services.bot_user_admin import (
+                    detach_local_services_for_pg_user,
+                    ensure_pg_user_removed_or_absent,
+                )
 
+                await ensure_pg_user_removed_or_absent(
+                    pg, uid, staff=staff, allow_disable_fallback=False
+                )
                 await detach_local_services_for_pg_user(session, uid, commit=False)
             else:
                 fail += 1

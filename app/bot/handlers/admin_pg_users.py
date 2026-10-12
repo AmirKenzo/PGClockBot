@@ -892,10 +892,15 @@ async def pg_user_del(
         return
     uid = int(gate.pg_user["id"]) if gate.pg_user and gate.pg_user.get("id") is not None else 0
     try:
-        await gate.pg_client.delete_user_by_id(uid)
-        if session is not None:
-            from app.services.bot_user_admin import detach_local_services_for_pg_user
+        from app.services.bot_user_admin import (
+            detach_local_services_for_pg_user,
+            ensure_pg_user_removed_or_absent,
+        )
 
+        await ensure_pg_user_removed_or_absent(
+            gate.pg_client, uid, staff=None, allow_disable_fallback=False
+        )
+        if session is not None:
             await detach_local_services_for_pg_user(session, uid, commit=True)
         await callback.answer("حذف شد", show_alert=True)
         list_gate = await _pg_user_gate(

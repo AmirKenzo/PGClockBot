@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 import string
 import time
@@ -15,6 +16,8 @@ from app.config import get_settings
 from app.db.models import BotUser, Role, Setting
 from app.services.button_styles import default_settings as button_style_defaults
 from app.services.button_styles import setting_group_fields as button_style_setting_fields
+
+logger = logging.getLogger("pgclock.users")
 
 # When handling updates on a reseller-owned bot, settings read/write overlay
 # that reseller's shop settings automatically.
@@ -1792,17 +1795,29 @@ async def delete_bot_user(
     svc_ids = [s.id for s in services]
     pg_services_deleted = 0
     if delete_pg_services:
+        from app.services.bot_user_admin import ensure_pg_user_removed_or_absent
+
+        pg_client = get_pg()
         for svc in services:
             if not svc.pg_user_id:
                 continue
             try:
-                await get_pg().delete_user_by_id(int(svc.pg_user_id))
+                # Confirmed PG 404 counts as removed so local cleanup can proceed.
+                await ensure_pg_user_removed_or_absent(
+                    pg_client,
+                    int(svc.pg_user_id),
+                    staff=None,
+                    allow_disable_fallback=True,
+                )
                 pg_services_deleted += 1
             except Exception:
-                try:
-                    await get_pg().set_disabled_by_id(int(svc.pg_user_id), True)
-                except Exception:
-                    pass
+                # Best-effort: BotUser delete continues even if one PG uid sticks.
+                logger.debug(
+                    "PG cleanup skipped for service=%s pg=%s",
+                    svc.id,
+                    svc.pg_user_id,
+                    exc_info=True,
+                )
 
     # Break orders ↔ services cycle
     await session.execute(

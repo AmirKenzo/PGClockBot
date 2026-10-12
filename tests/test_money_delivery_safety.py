@@ -189,7 +189,11 @@ class SourceWiringTests(unittest.TestCase):
     def test_service_delete_fail_closed_in_source(self):
         src = (ROOT / "app/services/bot_user_admin.py").read_text(encoding="utf-8")
         self.assertIn("سرویس محلی حذف نشد", src)
-        self.assertIn("if not pg_deleted and not pg_disabled:", src)
+        # Confirmed DELETE+GET 404 is the only idempotent escape; transport stays closed.
+        self.assertIn("async def ensure_pg_user_removed_or_absent", src)
+        self.assertIn("async def _pg_user_presence", src)
+        self.assertIn('presence == "absent"', src)
+        self.assertIn("is_pg_not_found", src)
 
     def test_wallet_topup_missing_user_guard_in_source(self):
         src = (ROOT / "app/services/orders.py").read_text(encoding="utf-8")
