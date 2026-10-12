@@ -151,6 +151,9 @@ async def fetch_remote_alembic_revision_ids(
     """Revision ids present under alembic/versions on the channel branch.
 
     Returns None when complete remote metadata could not be loaded.
+
+    Uses ``asyncio.wait_for`` (not ``asyncio.timeout``) so Python 3.10 hosts
+    can open the update tab — ``asyncio.timeout`` exists only since 3.11.
     """
     ch = channel_branch(channel)
     now = time.monotonic()
@@ -160,13 +163,23 @@ async def fetch_remote_alembic_revision_ids(
     if not force and same_channel and (now - float(_ALEMBIC_TREE_CACHE["at"])) < ttl:
         return set(cached_ids) if isinstance(cached_ids, set) else None
     try:
-        async with asyncio.timeout(timeout), httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            ids = await fetch_revision_ids(
-                client, repository=GITHUB_REPO, channel=ch, headers=_github_headers(),
-            )
+        async def _load() -> set[str]:
+            async with httpx.AsyncClient(
+                timeout=timeout, follow_redirects=True
+            ) as client:
+                return await fetch_revision_ids(
+                    client,
+                    repository=GITHUB_REPO,
+                    channel=ch,
+                    headers=_github_headers(),
+                )
+
+        # wait_for works on 3.10+; asyncio.timeout is 3.11-only (broke update tab).
+        ids = await asyncio.wait_for(_load(), timeout=timeout)
         _ALEMBIC_TREE_CACHE.update({"at": now, "channel": ch, "ids": set(ids), "ok": True})
         return set(ids)
-    except (httpx.HTTPError, ValueError, TimeoutError) as e:
+    # 3.10: asyncio.TimeoutError is distinct from builtins.TimeoutError.
+    except (httpx.HTTPError, ValueError, TimeoutError, asyncio.TimeoutError) as e:
         logger.debug("remote alembic tree fetch failed (%s): %s", ch, e)
         _ALEMBIC_TREE_CACHE.update(
             {
