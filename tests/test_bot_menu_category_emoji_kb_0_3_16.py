@@ -121,9 +121,17 @@ class CategoryLabelSplitTests(unittest.TestCase):
             normalize_reply_label("🛠 بازگشت به پنل ادمین"),
             "بازگشت به پنل ادمین",
         )
+        self.assertEqual(
+            normalize_reply_label("بازگشت به پنل ادمین 🛠️ 🌐"),
+            "بازگشت به پنل ادمین",
+        )
         mapping = {"🛠 بازگشت به پنل ادمین": "admin"}
         self.assertEqual(
             resolve_reply_mapping(mapping, "🌐 بازگشت به پنل ادمین"),
+            "admin",
+        )
+        self.assertEqual(
+            resolve_reply_mapping(mapping, "بازگشت به پنل ادمین 🌐"),
             "admin",
         )
 

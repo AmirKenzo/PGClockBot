@@ -15,6 +15,9 @@ from app.services.users import get_all_settings
 NAV_LEVEL = "_kb_nav"
 NAV_STACK = "_kb_stack"
 PAY_ORDER_ID = "_pay_order_id"
+# Sticky while the ReplyKeyboard is the customer «as_user» preview (survives
+# nested shop/wallet taps that change NAV_LEVEL away from NAV_USER_PREVIEW).
+USER_PREVIEW_ACTIVE = "_user_preview_active"
 # Within-section step (reply Back restores this before popping the keyboard level)
 SHOP_STEP = "_shop_step"  # hub | plans | custom | wholesale
 LOY_STEP = "_loy_step"  # hub | referral | points | rewards | wheel | history
@@ -250,6 +253,22 @@ async def get_nav_level(state: FSMContext | None) -> str:
     return str(data.get(NAV_LEVEL) or NAV_MAIN)
 
 
+async def is_user_preview_active(state: FSMContext | None) -> bool:
+    """True while the lasting ReplyKeyboard is the customer preview chrome."""
+    if state is None:
+        return False
+    data = await state.get_data()
+    if data.get(USER_PREVIEW_ACTIVE):
+        return True
+    return str(data.get(NAV_LEVEL) or "") == NAV_USER_PREVIEW
+
+
+async def set_user_preview_active(state: FSMContext | None, active: bool) -> None:
+    if state is None:
+        return
+    await state.update_data(**{USER_PREVIEW_ACTIVE: bool(active)})
+
+
 async def set_nav_level(state: FSMContext | None, level: str, *, push: bool = True) -> None:
     """Set current keyboard level; optionally push previous onto the back stack."""
     if state is None:
@@ -279,6 +298,7 @@ async def clear_nav(state: FSMContext | None) -> None:
             PAY_ORDER_ID: None,
             SHOP_STEP: None,
             LOY_STEP: None,
+            USER_PREVIEW_ACTIVE: False,
         }
     )
 
@@ -427,6 +447,8 @@ async def show_nav_keyboard(
         await set_nav_level(state, level, push=push)
         if order_id is not None:
             await state.update_data(**{PAY_ORDER_ID: int(order_id)})
+        if level == NAV_USER_PREVIEW:
+            await set_user_preview_active(state, True)
 
     if level == NAV_USER_PREVIEW:
         # Customer keyboard only — never leak admin/reseller hub buttons
