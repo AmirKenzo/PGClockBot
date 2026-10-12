@@ -107,18 +107,24 @@ navigation/metrics behavior.
 Validation used Python 3.12 on macOS and fake panel transports:
 
 - Focused Python tests: 181 passed, with 41 passing subtests, including 25
-  connection/authentication regressions.
+  connection/authentication regressions. Final validation after updating dev:
+  78 passed, with two passing subtests, covering the connection, asset-cache,
+  dashboard and API-key behavior.
 - Browser Node tests: 30 passed.
 - Security manifest: 1,263 passed, including the asset-cache and mutation
   follow-up regressions.
 - Expanded asset/PWA/UI validation: 210 passed and two failed. Both failure
   identities (`test_update_api_enabled`, `test_update_warns_stay_on_page`) also
   fail on clean dev and concern existing update-page source assertions.
-- Full suite on clean `upstream/dev` (`09f80fc1`): 3,626 passed, 79 failed and
-  5 skipped. The updated branch's full run: 3,651 passed, 76 failed and 5 skipped.
+- Full suite on clean `upstream/dev` (`122d6b77`): 3,645 passed, 79 failed and
+  5 skipped. The updated branch's full run: 3,675 passed, 76 failed and 5 skipped.
   Comparing failure identities found no new failures; all remaining failures
-  also occur on clean dev. The latest discovery/concurrency regressions were
-  subsequently verified in the focused run.
+  also occur on clean dev. These runs include the final discovery/concurrency,
+  mutation follow-up and asset-cache regressions.
+- Subsequently merged `upstream/dev` (`bff415c0`), which changed only release
+  metadata. The focused and browser runs above passed after this merge.
+  Release-note validation returned 12 passed and two failed on both the final
+  branch and clean `bff415c0`; both failures are existing source assertions.
 - `scripts/lint_changed.sh --details` and `git diff --check` passed.
 
 No migration, dependency, permission, setting or release-version change is needed.
