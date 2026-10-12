@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.15": [
+        "حذف سرویس/کاربر پاسارگارد: اگر DELETE با HTTP 404 برگردد و GET هم 404 تأیید کند، ردیف محلی پاک می‌شود (idempotent؛ دیگر orphan نمی‌ماند)",
+        "امنیت: timeout/403/5xx یا وجود کاربر بعد از DELETE 404 همچنان fail-closed — سرویس محلی حفظ می‌شود",
+        "ریستور: restore/pre-v0.3.15-v0.3.14",
+    ],
     "0.3.14": [
         "پلن فروش: مدت خالی یا ۰ = زمان نامحدود (مثل کپشن حجم؛ تحویل بدون انقضا در حالت سفارشی)",
         "پنل: فاصله کپشن نوع پلن در مودال افزودن، و پیام موفقیت/خطای برچسب دسته داخل همان مودال",
