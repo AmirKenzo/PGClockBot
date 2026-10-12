@@ -904,8 +904,12 @@ def create_api_app(lifespan=None) -> FastAPI:
                         "body": "با SSH به همان سروری که PGClockBot روی آن نصب است وارد شوید.",
                     },
                     {
-                        "title": "۲. وضعیت را چاپ کنید",
-                        "body": "این دستور لینک یک‌بارمصرف راه‌اندازی را نشان می‌دهد:",
+                        "title": "۲. وارد پوشهٔ نصب شوید و وضعیت را چاپ کنید",
+                        "body": (
+                            "<code dir=\"ltr\">pgclock.sh</code> فقط داخل پوشهٔ پروژه کار می‌کند. "
+                            "اول با دستور زیر وارد همان پوشه شوید، بعد وضعیت را بگیرید "
+                            "(لینک یک‌بارمصرف راه‌اندازی را نشان می‌دهد):"
+                        ),
                     },
                     {
                         "title": "۳. لینک را در مرورگر باز کنید",
@@ -918,9 +922,18 @@ def create_api_app(lifespan=None) -> FastAPI:
                         ),
                     },
                 ],
-                code_block="bash pgclock.sh status",
+                code_block=(
+                    'cd "$(cat /usr/local/lib/pgclockbot/install_root)"\n'
+                    "bash pgclock.sh status"
+                ),
                 guide_note=(
-                    "از خود سرور با "
+                    "اگر مسیر بالا خطا داد، معمولاً "
+                    "<code dir=\"ltr\">cd /root/PGClockBot</code> "
+                    "یا "
+                    "<code dir=\"ltr\">cd ~/PGClockBot</code> "
+                    "است. بدون ورود به پوشه هم می‌توانید از هر جا "
+                    "<code dir=\"ltr\">pgclock status</code> "
+                    "بزنید. از خود سرور با "
                     "<code dir=\"ltr\">127.0.0.1</code> "
                     "یا "
                     "<code dir=\"ltr\">::1</code> "
