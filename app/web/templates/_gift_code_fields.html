@@ -29,8 +29,10 @@
     <input name="max_uses_per_user" type="number" min="1" max="1000" value="{{ (c.max_uses_per_user if c.max_uses_per_user is not none else '') if c else 1 }}" placeholder="خالی = نامحدود" dir="ltr" />
   </label>
   <label class="form-field gift-expires-field">تاریخ و ساعت انقضا (به وقت تهران)
-    <input name="expires_at" type="datetime-local" value="{{ details.get('expiry_input', '') }}" dir="ltr" />
-    <span class="muted">خالی = بدون انقضا · تاریخ میلادی</span>
+    <span class="gift-expires-input-wrap">
+      <input name="expires_at" type="datetime-local" value="{{ details.get('expiry_input', '') }}" dir="ltr" />
+    </span>
+    <small class="muted">خالی = بدون انقضا · تاریخ میلادی</small>
   </label>
   {% if not c %}
   <label class="form-field">کد سفارشی (اختیاری)
