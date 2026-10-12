@@ -174,13 +174,15 @@ def _user_actions_kb(uid: int, *, back: str = "adm:pg:users") -> InlineKeyboardM
 
 def _edit_menu_kb(uid: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="👤 تغییر نام کاربری", callback_data=f"adm:pg:u:{uid}:ed:name")],
-            [InlineKeyboardButton(text="📦 تغییر حجم (گیگ)", callback_data=f"adm:pg:u:{uid}:ed:gb")],
-            [InlineKeyboardButton(text="📅 تغییر مدت (روز)", callback_data=f"adm:pg:u:{uid}:ed:days")],
-            [InlineKeyboardButton(text="📁 تغییر گروه‌ها", callback_data=f"adm:pg:u:{uid}:ed:grps")],
-            [InlineKeyboardButton(text="⬅️ کارت کاربر", callback_data=f"adm:pg:u:{uid}")],
-        ]
+        inline_keyboard=kb.pack_detail_rows(
+            [
+                [InlineKeyboardButton(text="👤 تغییر نام کاربری", callback_data=f"adm:pg:u:{uid}:ed:name")],
+                [InlineKeyboardButton(text="📦 تغییر حجم (گیگ)", callback_data=f"adm:pg:u:{uid}:ed:gb")],
+                [InlineKeyboardButton(text="📅 تغییر مدت (روز)", callback_data=f"adm:pg:u:{uid}:ed:days")],
+                [InlineKeyboardButton(text="📁 تغییر گروه‌ها", callback_data=f"adm:pg:u:{uid}:ed:grps")],
+                [InlineKeyboardButton(text="⬅️ کارت کاربر", callback_data=f"adm:pg:u:{uid}")],
+            ]
+        )
     )
 
 async def _fetch_users_page(
