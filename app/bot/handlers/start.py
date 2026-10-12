@@ -118,21 +118,14 @@ async def render_home(
             ui=ui,
         )
 
-    # Welcome Mini App: platform bot + HTTPS only (all roles — admin/reseller/user).
-    # Shop bots never get it (initData HMAC is the main bot token).
-    # Telegram forbids Reply+Inline on one message. Put Mini App *on* the welcome
-    # (same as menu:home edit). ReplyKeyboard persists from a prior lasting
-    # carrier — never send a filler «⌨️»/blank bubble under /start.
-    # When Mini App is off, welcome itself carries the lasting ReplyKeyboard.
-    mini_markup = None
-    if not is_reseller_bot:
-        mini_markup = kb.miniapp_inline_keyboard(ui)
-
+    # Welcome always carries the lasting main ReplyKeyboard (four-square menu).
+    # Mini App opens only via Telegram MenuButton «Open» (chat_menu) — never
+    # inline on welcome and never as a ReplyKeyboard web_app row.
     if edit:
         from aiogram.exceptions import TelegramBadRequest
 
         try:
-            await message.edit_text(text, reply_markup=mini_markup, **home_send_kw)
+            await message.edit_text(text, reply_markup=None, **home_send_kw)
             return
         except TelegramBadRequest as e:
             if "message is not modified" in str(e).lower():
@@ -146,10 +139,7 @@ async def render_home(
             except Exception:
                 pass
 
-    if mini_markup is not None:
-        await message.answer(text, reply_markup=mini_markup, **home_send_kw)
-    else:
-        await message.answer(text, reply_markup=reply_kb, **home_send_kw)
+    await message.answer(text, reply_markup=reply_kb, **home_send_kw)
     _ = seed_reply_kb
 
 

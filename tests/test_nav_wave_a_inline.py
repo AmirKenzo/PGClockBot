@@ -45,11 +45,9 @@ class MainKeyboardInlineTests(unittest.TestCase):
             "btn_menu_home": "🏠 منوی اصلی",
             "btn_back": "⬅️ بازگشت",
         }
-        with patch("app.bot.nav_inline.miniapp_reply_button", return_value=None):
-            kb = main_reply_keyboard(
-                Role.USER.value, has_services=True, ui=ui
-            )
+        kb = main_reply_keyboard(Role.USER.value, has_services=True, ui=ui)
         labels = [b.text for row in kb.keyboard for b in row]
+        self.assertNotIn("مینی‌اپ", labels)
         self.assertNotIn("🏠 منوی اصلی", labels)
         self.assertNotIn("درخواست نمایندگی", labels)
         self.assertIn("خرید", labels)

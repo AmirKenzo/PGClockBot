@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
-    async def test_render_home_without_miniapp_single_message_reply_kb(self):
-        """When Mini App HTTPS is off, welcome is one message with ReplyKeyboard."""
+    async def test_render_home_welcome_single_message_reply_kb(self):
+        """Welcome is one message with lasting ReplyKeyboard (Open is MenuButton)."""
         from app.bot.handlers.start import render_home
         from app.db.models import Role
 
@@ -57,10 +57,6 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
             patch(
                 "app.bot.menu_nav.build_main_reply_keyboard",
                 new=AsyncMock(return_value=(main_kb, ui, "user")),
-            ),
-            patch(
-                "app.bot.keyboards.miniapp_inline_keyboard",
-                return_value=None,
             ),
             patch(
                 "app.bot.handlers.start.seed_main_reply_kb",
@@ -86,8 +82,8 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(call.kwargs.get("reply_markup"), main_kb)
         seed.assert_not_awaited()
 
-    async def test_render_home_with_miniapp_on_welcome_no_filler_seed(self):
-        """Welcome carries Mini App inline; no second ⌨️ / blank seed message."""
+    async def test_render_home_with_seed_flag_still_attaches_reply(self):
+        """seed_reply_kb no longer sends a filler; welcome itself carries ReplyKeyboard."""
         from app.bot.handlers.start import render_home
         from app.db.models import Role
 
@@ -111,7 +107,6 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
             "btn_miniapp": "مینی اپ",
         }
         main_kb = MagicMock(name="MAIN_REPLY")
-        mini_kb = MagicMock(name="MINI_INLINE")
 
         with (
             patch(
@@ -135,10 +130,6 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=(main_kb, ui, "user")),
             ),
             patch(
-                "app.bot.keyboards.miniapp_inline_keyboard",
-                return_value=mini_kb,
-            ),
-            patch(
                 "app.bot.handlers.start.seed_main_reply_kb",
                 new=AsyncMock(),
             ) as seed,
@@ -160,7 +151,7 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
         message.answer.assert_awaited_once()
         call = message.answer.await_args
         self.assertEqual(call.args[0], "HOME_TEXT")
-        self.assertIs(call.kwargs.get("reply_markup"), mini_kb)
+        self.assertIs(call.kwargs.get("reply_markup"), main_kb)
         seed.assert_not_awaited()
 
     async def test_render_home_without_mini_still_attaches_reply(self):
@@ -198,10 +189,6 @@ class RenderHomeReplyLastTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=(main_kb, ui, "user")),
             ),
             patch(
-                "app.bot.keyboards.miniapp_inline_keyboard",
-                return_value=None,
-            ),
-            patch(
                 "app.services.rich_text.outbound_setting_text",
                 return_value=("HOME_TEXT", {}),
             ),
@@ -225,10 +212,8 @@ class HomeReplySourceGuards(unittest.TestCase):
 
         src = inspect.getsource(start.render_home)
         self.assertNotIn("send_reply_keyboard_last", src)
-        self.assertIn("miniapp_inline_keyboard", src)
-        self.assertIn("if not is_reseller_bot:", src)
-        self.assertNotIn('effective_role not in {"admin", "reseller"}', src)
-        self.assertIn("message.answer(text, reply_markup=mini_markup", src)
+        self.assertNotIn("miniapp_inline_keyboard", src)
+        self.assertNotIn("mini_markup", src)
         self.assertIn("message.answer(text, reply_markup=reply_kb", src)
         self.assertNotIn('await message.answer("📱"', src)
         self.assertNotIn("_miniapp_ahead_text", src)

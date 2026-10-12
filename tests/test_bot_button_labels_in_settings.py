@@ -10,15 +10,20 @@ class BotButtonLabelCoverageTests(unittest.TestCase):
         from app.bot.handlers.admin_settings import FIELDS
         from app.services.users import DEFAULT_SETTINGS
 
+        # Retired: Mini App is MenuButton «Open» only — label not editable in-bot.
+        retired = frozenset({"btn_miniapp"})
         expected = {
             k
             for k in DEFAULT_SETTINGS
-            if k.startswith("btn_") and not k.startswith("btn_style_")
+            if k.startswith("btn_")
+            and not k.startswith("btn_style_")
+            and k not in retired
         }
         missing = expected - set(FIELDS)
         self.assertFalse(missing, f"admin FIELDS missing button keys: {sorted(missing)}")
         for key in expected:
             self.assertEqual(FIELDS[key][2], "text", key)
+        self.assertNotIn("btn_miniapp", FIELDS)
 
     def test_reseller_excludes_platform_only_buttons(self):
         from app.bot.handlers.reseller_settings import FIELDS

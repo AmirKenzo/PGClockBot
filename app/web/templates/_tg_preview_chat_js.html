@@ -285,19 +285,9 @@
       keysEl.innerHTML = '';
     }
     if (inlineEl) {
-      // Welcome / buttons / menu preview: miniapp as inline web_app under welcome
-      var showMiniInline = (tab === 'welcome' || tab === 'buttons' || tab === 'menu');
-      var miniLabel = (tab === 'buttons')
-        ? val('btn_miniapp', values.btn_miniapp || '📱 مینی‌اپ')
-        : (values.btn_miniapp || '📱 مینی‌اپ');
-      var miniTone = styleTone('miniapp', 'primary');
-      if (showMiniInline && miniLabel) {
-        inlineEl.hidden = false;
-        inlineEl.innerHTML = '<div class="tg-inline-row"><button type="button" class="tg-inline-key" data-tone="'+esc(miniTone)+'">'+esc(miniLabel)+'</button></div>';
-      } else {
-        inlineEl.hidden = true;
-        inlineEl.innerHTML = '';
-      }
+      // Mini App is MenuButton Open only — never preview as welcome inline.
+      inlineEl.hidden = true;
+      inlineEl.innerHTML = '';
     }
     if (sceneEl) sceneEl.hidden = true;
     if (textEl) textEl.innerHTML = esc(text).replace(/\n/g,'<br>');
