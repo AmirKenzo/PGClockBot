@@ -369,12 +369,13 @@
 
     <main class="main">
       <div class="main-body">
-        {# Page flashes stay above the title. When an edit/domain settings modal
+        {# Page flashes stay above the title. When an edit/domain/catalog modal
            is reopening, the same message is shown inside the modal instead. #}
         {% set _domain_modal_open = open_supports_modal or open_loyalty_settings or (open_finance_settings|default('')|string|length > 0) %}
         {% set _principal_modal_open = open_detail|default(false) %}
-        {% if flash_ok and not open_edit and not _domain_modal_open and not _principal_modal_open %}<div class="flash ok">{{ flash_ok }}</div>{% endif %}
-        {% if flash_err and not open_edit and not _domain_modal_open and not _principal_modal_open %}<div class="flash err">{{ flash_err }}</div>{% endif %}
+        {% set _catalog_modal_open = open_categories|default(false) %}
+        {% if flash_ok and not open_edit and not _domain_modal_open and not _principal_modal_open and not _catalog_modal_open %}<div class="flash ok">{{ flash_ok }}</div>{% endif %}
+        {% if flash_err and not open_edit and not _domain_modal_open and not _principal_modal_open and not _catalog_modal_open %}<div class="flash err">{{ flash_err }}</div>{% endif %}
         {% block content %}{% endblock %}
       </div>
       <footer class="site-footer">

@@ -2871,6 +2871,12 @@ input.mono, textarea.mono, select.mono { font-size: var(--control-fs); }
 .ui-modal-panel > p.muted {
   margin: 0 0 var(--space-2);
 }
+/* Kind-picker stack sits above panels with margin-bottom:0 — captions need
+   the same vertical air as .form-stack gap (space-2) above and below. */
+#modal-plan-unified .plan-panel > .update-card-caption,
+#modal-plan-unified .plan-panel > p.muted.update-card-caption {
+  margin: var(--space-2) 0;
+}
 .flash-copy strong {
   font-size: 13px;
   font-weight: 650;
@@ -10501,6 +10507,13 @@ html[data-theme="light"] .ui-select-menu button[data-tone="danger"]:hover {
   letter-spacing: -0.01em;
   line-height: 1.3;
   color: var(--foreground);
+}
+/* Category create/edit flash lives in-modal (not page chrome). */
+#modal-plan-categories .ui-modal-panel > .settings-modal-flash {
+  margin: 0 0 var(--space-2);
+}
+#modal-plan-categories .ui-modal-panel > .settings-modal-flash .flash {
+  margin: 0;
 }
 .form-stack + .gift-codes-recent-title,
 #modal-gift-codes .form-stack + .gift-codes-recent-title,
