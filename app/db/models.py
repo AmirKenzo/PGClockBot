@@ -146,6 +146,7 @@ class Plan(Base):
     name: Mapped[str] = mapped_column(String(128))
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     price: Mapped[int] = mapped_column(Integer)  # toman
+    # 0 = unlimited duration (no expire on custom PG create / renew)
     duration_days: Mapped[int] = mapped_column(Integer, default=30)
     data_limit_gb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     pg_template_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

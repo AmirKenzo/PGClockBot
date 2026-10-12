@@ -41,7 +41,7 @@
         <td>{{ p.name }}</td>
         <td class="col-hide-sm muted">{% if p.category_id and plan_category_map and plan_category_map.get(p.category_id) %}{{ plan_category_map.get(p.category_id).name }}{% else %}—{% endif %}</td>
         <td class="mono" dir="ltr">{{ p.price | money }}</td>
-        <td class="col-hide-sm">{{ p.duration_days }} روز</td>
+        <td class="col-hide-sm">{% if p.duration_days %}{{ p.duration_days }} روز{% else %}نامحدود{% endif %}</td>
         <td>{% if p.data_limit_gb is not none %}{{ p.data_limit_gb | gb }}{% else %}نامحدود{% endif %}</td>
         <td class="mono col-hide-sm">
           {% if p.pg_template_id %}تمپلیت #{{ p.pg_template_id }}
@@ -417,8 +417,8 @@
             <input name="price" type="number" data-money min="0" required placeholder="150,000" />
           </label>
           <label class="form-field">مدت (روز)
-            <input name="duration_days" type="number" min="1" value="30" required />
-            {% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_expire_max %}<small class="muted">سقف زنده: {{ (pg_limit_snapshot.per_user_expire_max // 86400) or 1 }} روز</small>{% endif %}
+            <input name="duration_days" type="number" min="0" value="30" placeholder="خالی = نامحدود" />
+            <small class="muted">برای مدت نامحدود فیلد را <b>خالی</b> بگذارید (یا ۰){% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_expire_max %} — سقف زنده: {{ (pg_limit_snapshot.per_user_expire_max // 86400) or 1 }} روز{% endif %}</small>
           </label>
           <label class="form-field">حجم (گیگ)
             <input name="data_limit_gb" type="number" step="0.1" min="0" placeholder="خالی = نامحدود" />
@@ -866,13 +866,20 @@
 </div>
 
 {# —— Plan category labels modal —— #}
-<div class="ui-modal{% if open_categories %} open{% endif %}" id="modal-plan-categories" {% if not open_categories %}hidden{% endif %}>
-  <div class="ui-modal-backdrop" data-modal-close></div>
+<div class="ui-modal{% if open_categories %} open{% endif %}" id="modal-plan-categories" {% if not open_categories %}hidden{% endif %}
+     data-modal-strip-keys="categories,ok,err,_">
+  <div class="ui-modal-backdrop" data-modal-close-strip></div>
   <div class="ui-modal-panel ui-modal-panel-lg" role="dialog" aria-modal="true" aria-labelledby="plan-categories-title">
     <div class="ui-modal-head">
       {{ modal_title('plans', 'برچسب دسته', caption='در ربات فروشگاه، به‌جای «ثابت» دکمه‌های دسته نشان داده می‌شوند — رنگ دکمه را اینجا تنظیم کنید', tone='brand', heading_id='plan-categories-title') }}
-      <button type="button" class="icon-btn" data-modal-close aria-label="بستن"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <button type="button" class="icon-btn" data-modal-close-strip aria-label="بستن"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
+    {% if open_categories and (flash_ok or flash_err) %}
+    <div class="settings-modal-flash" id="plan-categories-flash">
+      {% if flash_ok %}<div class="flash ok">{{ flash_ok }}</div>{% endif %}
+      {% if flash_err %}<div class="flash err">{{ flash_err }}</div>{% endif %}
+    </div>
+    {% endif %}
     <form method="post" action="/plans/categories" class="form-stack plan-cat-form" id="plan-category-form" data-create-action="/plans/categories">
       <div class="settings-grid">
         <label class="form-field">نام برچسب
@@ -904,7 +911,7 @@
       <div class="actions">
         <button class="btn" type="submit" id="plan-category-submit">افزودن برچسب</button>
         <button type="button" class="btn btn-ghost" id="plan-category-cancel-edit" hidden>انصراف از ویرایش</button>
-        <button type="button" class="btn btn-ghost" data-modal-close>بستن</button>
+        <button type="button" class="btn btn-ghost" data-modal-close-strip>بستن</button>
       </div>
     </form>
     <div class="plan-cat-list">

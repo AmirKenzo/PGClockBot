@@ -148,6 +148,18 @@ class WiringTests(unittest.TestCase):
         self.assertIn("modal-plan-categories", plans)
         self.assertIn("modal-service-addons", plans)
         self.assertIn("برچسب دسته", plans)
+        # Category success/error flash renders inside the modal, not page chrome.
+        self.assertIn('id="plan-categories-flash"', plans)
+        self.assertIn("settings-modal-flash", plans)
+        self.assertIn('data-modal-strip-keys="categories,ok,err,_"', plans)
+        base = Path("app/web/templates/base.html").read_text(encoding="utf-8")
+        self.assertIn("open_categories", base)
+        self.assertIn("_catalog_modal_open", base)
+        css = Path("app/web/static/panel.css").read_text(encoding="utf-8")
+        self.assertIn(
+            "#modal-plan-unified .plan-panel > .update-card-caption",
+            css,
+        )
         self.assertIn("user-service-addons", plans)
         self.assertIn("addon_duration", plans)
         self.assertIn("plan-category-audience", plans)

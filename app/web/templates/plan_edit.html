@@ -23,11 +23,10 @@
         <input name="price" type="number" data-money min="0" required value="{{ plan.price }}" />
       </label>
       <label class="form-field">مدت (روز)
-        <input name="duration_days" type="number" min="1" required value="{{ plan.duration_days }}" />
-        {% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_expire_max %}<small class="muted">سقف زنده: {{ (pg_limit_snapshot.per_user_expire_max // 86400) or 1 }} روز</small>{% endif %}
+        <input name="duration_days" type="number" min="0" value="{{ plan.duration_days if plan.duration_days else '' }}" placeholder="خالی = نامحدود" />
+        <small class="muted">برای مدت نامحدود فیلد را <b>خالی</b> بگذارید (یا ۰){% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_expire_max %} — سقف زنده: {{ (pg_limit_snapshot.per_user_expire_max // 86400) or 1 }} روز{% endif %}</small>
       </label>
       <label class="form-field">حجم (گیگ)
-        
         <input name="data_limit_gb" type="number" step="0.1" min="0" value="{{ plan.data_limit_gb if plan.data_limit_gb is not none else '' }}" placeholder="خالی = نامحدود" />
         <small class="muted">برای حجم نامحدود فیلد را <b>خالی</b> بگذارید — عدد صفر نامحدود نیست{% if pg_limit_snapshot and pg_limit_snapshot.restricted and pg_limit_snapshot.per_user_data_max %} — سقف زنده: {{ pg_limit_snapshot.per_user_data_max | bytes }}{% endif %}</small>
       </label>

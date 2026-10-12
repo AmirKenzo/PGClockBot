@@ -562,6 +562,15 @@ def format_expire_duration_days(seconds: int | None) -> str:
     return f"{days} روز"
 
 
+def format_plan_duration_days(days: int | None) -> str:
+    """Human label for Plan.duration_days — 0/None means unlimited."""
+    try:
+        n = int(days or 0)
+    except (TypeError, ValueError):
+        return "نامحدود"
+    return "نامحدود" if n <= 0 else f"{n} روز"
+
+
 def format_expire(value: Any, *, status: Any = None, expire_duration: Any = None) -> str:
     dt = parse_expire(value)
     if not dt:
