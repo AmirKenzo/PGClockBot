@@ -413,7 +413,7 @@
         return `<div class="plan-row">
           <div class="plan-meta">
             <strong>${esc(p.name)}</strong>
-            <div class="muted">${esc(p.days)} روز · ${esc(p.gb ?? "∞")} گیگ${
+            <div class="muted">${esc(p.days ? `${p.days} روز` : "نامحدود")} · ${esc(p.gb == null || p.gb === "" ? "∞" : p.gb)} گیگ${
           p.is_trial ? " · تست" : ""
         }</div>
           </div>

@@ -29,6 +29,19 @@ from app.services.shop_scope import ShopScopeError, is_platform_admin, shop_owne
 log = logging.getLogger(__name__)
 
 
+def parse_user_plan_duration_days(raw: Any) -> int:
+    """Parse panel duration field: blank → 0 (unlimited); reject negatives."""
+    from app.services.numbers import normalize_number_text, parse_int
+
+    text = normalize_number_text("" if raw is None else str(raw))
+    if not text:
+        return 0
+    days = parse_int(text)
+    if days < 0:
+        raise ValueError("مدت نمی‌تواند منفی باشد")
+    return int(days)
+
+
 class PlanDeleteBlocked(Exception):
     """Plan cannot be deleted because dependents still reference it (FK RESTRICT)."""
 

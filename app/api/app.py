@@ -2744,7 +2744,7 @@ def create_api_app(lifespan=None) -> FastAPI:
         request: Request,
         name: str = Form(...),
         price: int = Form(...),
-        duration_days: int = Form(30),
+        duration_days: str = Form(""),
         data_limit_gb: str = Form(""),
         pg_template_id: str = Form(""),
         description: str = Form(""),
@@ -2759,6 +2759,7 @@ def create_api_app(lifespan=None) -> FastAPI:
         from app.services.plans_catalog import (
             groups_allowed_for_staff,
             parse_group_ids_from_form,
+            parse_user_plan_duration_days,
             require_catalog_owner_id,
             staff_can_create_pg_template,
             template_allowed_for_staff,
@@ -2768,10 +2769,14 @@ def create_api_app(lifespan=None) -> FastAPI:
         form = await request.form()
         gb = float(data_limit_gb) if str(data_limit_gb).strip() else None
         try:
+            days = parse_user_plan_duration_days(duration_days)
+        except ValueError as e:
+            return RedirectResponse(f"/plans?err={quote(str(e))}", status_code=303)
+        try:
             await assert_user_plan_within_limits(
                 staff,
                 data_limit=int(gb * (1024**3)) if gb is not None else None,
-                duration_days=duration_days,
+                duration_days=days,
                 label="پلن فروش",
                 session=session,
             )
@@ -2820,15 +2825,15 @@ def create_api_app(lifespan=None) -> FastAPI:
                     from app.api.pg_pages import _staff_pg
 
                     pg_client, _as_owner = await _staff_pg(session, staff)
-                    created = await pg_client.create_user_template(
-                        {
-                            "name": name.strip(),
-                            "group_ids": ids,
-                            "expire_duration": duration_days * 86400,
-                            "data_limit": int(gb * (1024**3)) if gb is not None else None,
-                            "status": "active",
-                        }
-                    )
+                    tpl_payload: dict = {
+                        "name": name.strip(),
+                        "group_ids": ids,
+                        "data_limit": int(gb * (1024**3)) if gb is not None else None,
+                        "status": "active",
+                    }
+                    if days > 0:
+                        tpl_payload["expire_duration"] = days * 86400
+                    created = await pg_client.create_user_template(tpl_payload)
                     if isinstance(created, dict) and created.get("id"):
                         tpl = int(created["id"])
                 except Exception as e:
@@ -2854,7 +2859,7 @@ def create_api_app(lifespan=None) -> FastAPI:
             Plan(
                 name=name.strip(),
                 price=price,
-                duration_days=duration_days,
+                duration_days=days,
                 data_limit_gb=gb,
                 pg_template_id=tpl,
                 pg_group_ids=group_csv,
@@ -3208,7 +3213,7 @@ def create_api_app(lifespan=None) -> FastAPI:
         request: Request,
         name: str = Form(...),
         price: int = Form(...),
-        duration_days: int = Form(30),
+        duration_days: str = Form(""),
         data_limit_gb: str = Form(""),
         pg_template_id: str = Form(""),
         description: str = Form(""),
@@ -3222,6 +3227,7 @@ def create_api_app(lifespan=None) -> FastAPI:
             get_owned_plan,
             groups_allowed_for_staff,
             parse_group_ids_from_form,
+            parse_user_plan_duration_days,
             template_allowed_for_staff,
         )
 
@@ -3232,10 +3238,17 @@ def create_api_app(lifespan=None) -> FastAPI:
         form = await request.form()
         gb = float(data_limit_gb) if str(data_limit_gb).strip() else None
         try:
+            days = parse_user_plan_duration_days(duration_days)
+        except ValueError as e:
+            return RedirectResponse(
+                "/plans/%d/edit?err=%s" % (plan_id, quote(str(e))),
+                status_code=303,
+            )
+        try:
             await assert_user_plan_within_limits(
                 staff,
                 data_limit=int(gb * (1024**3)) if gb is not None else None,
-                duration_days=duration_days,
+                duration_days=days,
                 label="ویرایش پلن",
                 session=session,
             )
@@ -3275,7 +3288,7 @@ def create_api_app(lifespan=None) -> FastAPI:
 
         plan.name = name.strip()
         plan.price = price
-        plan.duration_days = duration_days
+        plan.duration_days = days
         plan.data_limit_gb = gb
         plan.description = description or None
         plan.sort_order = sort_order

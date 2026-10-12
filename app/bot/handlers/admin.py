@@ -269,6 +269,8 @@ async def _custom_link_summary(session: AsyncSession) -> tuple[str, InlineKeyboa
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 async def _plan_detail_text(p: Plan, *, category_name: str | None = None) -> str:
+    from app.services.formatting import format_plan_duration_days
+
     gb = f"{p.data_limit_gb:g} گیگ" if p.data_limit_gb is not None else "نامحدود"
     if p.pg_template_id:
         link = f"تمپلیت #{p.pg_template_id}"
@@ -280,7 +282,7 @@ async def _plan_detail_text(p: Plan, *, category_name: str | None = None) -> str
     return (
         f"💎 <b>پلن #{p.id}</b> — {html.escape(p.name)}\n\n"
         f"قیمت: {format_toman(p.price, get_settings().currency)}\n"
-        f"مدت: {p.duration_days} روز\n"
+        f"مدت: {format_plan_duration_days(p.duration_days)}\n"
         f"حجم: {gb}\n"
         f"برچسب دسته: {cat}\n"
         f"وضعیت: {'فعال' if p.is_active else 'خاموش'}\n"
@@ -1025,7 +1027,7 @@ async def adm_plan_edit_ask(
     prompts = {
         "name": "نام جدید پلن:",
         "price": "قیمت (تومان):",
-        "days": "مدت (روز):",
+        "days": "مدت (روز) — ۰ یا خالی = نامحدود:",
         "gb": "حجم گیگ (۰ = نامحدود):",
         "desc": "توضیح (خالی = حذف):",
         "sort": "ترتیب نمایش (عدد؛ کمتر = بالاتر):",
@@ -1084,7 +1086,11 @@ async def adm_plan_edit_save(
         elif field == "price":
             plan.price = max(0, parse_bot_int(text))
         elif field == "days":
-            plan.duration_days = max(1, parse_bot_int(text))
+            # 0 or empty → unlimited duration (matches panel)
+            if not text:
+                plan.duration_days = 0
+            else:
+                plan.duration_days = max(0, parse_bot_int(text))
         elif field == "gb":
             gb = parse_bot_float(text)
             plan.data_limit_gb = None if gb <= 0 else gb
@@ -1187,7 +1193,7 @@ async def plan_price(
     await ask_text(
         message,
         state,
-        prompt="مدت اعتبار به روز را بفرستید:",
+        prompt="مدت اعتبار به روز را بفرستید:\n<code>0</code> یا خالی = نامحدود",
         cancel_code="adm_pln",
         fsm_state=AdminStates.add_plan_days,
         edit=False,
@@ -1212,8 +1218,9 @@ async def plan_days(
 
         await _answer_plans_cancel(message, state, session)
         return
+    raw = (message.text or "").strip()
     try:
-        days = max(1, parse_bot_int(message.text, default=30))
+        days = 0 if not raw else max(0, parse_bot_int(raw))
     except ValueError:
         await message.answer("یک عدد معتبر بفرستید.")
         return
@@ -1310,7 +1317,7 @@ async def _finish_new_plan(
     plan = Plan(
         name=name[:128],
         price=max(0, price),
-        duration_days=max(1, days),
+        duration_days=max(0, days),
         data_limit_gb=data.get("gb"),
         pg_template_id=template_id,
         pg_group_ids=group_ids,
