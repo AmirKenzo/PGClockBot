@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.32": [
+        "پنل: همهٔ متغیرهای پشتیبانی‌شدهٔ هر فیلد تمپلیت نشان داده می‌شوند و با یک کلیک کپی می‌شوند؛ نامعتبرها قرمز و غیرقابل‌کپی (#690)",
+        "ریستور: restore/pre-v0.3.32-v0.3.31",
+    ],
     "0.3.31": [
         "پنل وب: در قطعی/کندی PasarGuard صفحه گیر نمی‌کند — deadline کوتاه، circuit breaker، ویجت‌های داشبورد جدا و پیام/دکمهٔ تلاش مجدد (#689)",
         "ریستور: restore/pre-v0.3.31-v0.3.30",
