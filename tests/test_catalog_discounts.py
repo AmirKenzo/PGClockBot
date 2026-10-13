@@ -211,18 +211,23 @@ class CatalogDiscountTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_repeated_creation_and_worker_do_not_send_twice(self) -> None:
         data = self.data(title="<img src=x onerror=alert(1)>")
+        self.session.add_all([
+            Order(user_id=5, reseller_id=2, plan_id=3, amount=100, status="delivered"),
+            BotUser(id=8, telegram_id=108, referral_code="unrelated", reseller_id=3),
+        ])
+        await self.session.commit()
         first = await create_discount(self.session, SHOP, data)
         repeated = await create_discount(self.session, SHOP, data)
         self.assertEqual(first.id, repeated.id)
         self.assertEqual(await self.session.scalar(select(func.count()).select_from(TargetedCampaign)), 1)
         ids = list((await self.session.scalars(select(CampaignRecipient.user_id).where(CampaignRecipient.campaign_id == first.campaign_id))).all())
-        self.assertEqual(ids, [4])
+        self.assertEqual(sorted(ids), [4, 5])
         bot = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=1)))
         await process_campaign(self.session, first.campaign_id, bot, delay=0)
         await process_campaign(self.session, first.campaign_id, bot, delay=0)
-        self.assertEqual(bot.send_message.await_count, 1)
-        args = bot.send_message.call_args
-        self.assertEqual(args.args[0], 104)
+        self.assertEqual(bot.send_message.await_count, 2)
+        args = bot.send_message.call_args_list[0]
+        self.assertEqual({call.args[0] for call in bot.send_message.call_args_list}, {104, 105})
         self.assertIsNone(args.kwargs["parse_mode"])
         self.assertIn(f"{format_number(24)} ساعت", args.args[1])
         self.assertIn(expiry_input(first.ends_at), args.args[1])

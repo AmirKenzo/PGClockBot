@@ -90,9 +90,8 @@ def announcement(row: CatalogDiscount, *, duration_hours: int | None) -> str:
 
 
 def recipient_query(shop_id: int | None) -> Select[tuple[int]]:
-    membership = or_(BotUser.reseller_id == shop_id, exists(select(Order.id).where(
-        Order.user_id == BotUser.id, Order.reseller_id == shop_id,
-    )))
+    shop_buyers = select(Order.user_id).where(Order.reseller_id == shop_id)
+    membership = or_(BotUser.reseller_id == shop_id, BotUser.id.in_(shop_buyers))
     opted_out = exists(select(MarketingPreference.user_id).where(
         MarketingPreference.user_id == BotUser.id, MarketingPreference.shop_key == (shop_id or 0),
         MarketingPreference.enabled.is_(False),
