@@ -2718,6 +2718,9 @@
           el.setAttribute('dir', el.getAttribute('dir') || 'ltr');
           el.setAttribute('autocomplete', el.getAttribute('autocomplete') || 'off');
         });
+        (root || document).querySelectorAll('input[data-money-kind]').forEach((el) => {
+          window.PanelMoney.syncMoneyMode(el, normalizeNumberText);
+        });
         (root || document).querySelectorAll('input[data-money]').forEach((el) => {
           window.PanelMoney.formatMoneyInput(el, normalizeNumberText);
         });
@@ -2740,6 +2743,11 @@
         applyNormalize(e.target);
       }, true);
       document.addEventListener('change', (e) => {
+        if (e.target instanceof HTMLSelectElement && e.target.form) {
+          e.target.form.querySelectorAll('input[data-money-kind]').forEach((el) => {
+            window.PanelMoney.syncMoneyMode(el, normalizeNumberText);
+          });
+        }
         applyNormalize(e.target);
       }, true);
       document.addEventListener('input', (e) => {
