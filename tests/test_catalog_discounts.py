@@ -35,7 +35,7 @@ from app.db.models import (
 from app.services.campaigns import campaign_send_delay, process_campaign
 from app.services.catalog_discounts import DiscountInput, create_discount, pause_expired_announcements, stop_discount
 from app.services.catalog_pricing import PriceTarget, active_discounts, displayed_quote, price_html, quote_price, quote_product
-from app.services.formatting import format_expire_short, format_number
+from app.services.formatting import format_expire_short, format_money, format_number
 from app.services.gift_codes import expiry_input
 from app.services.orders import create_custom_order, create_order, create_wholesale_order, get_catalog_plan, renew_service_with_plan
 from app.services.service_addons import create_addon_order
@@ -332,6 +332,7 @@ class CatalogDiscountTests(unittest.IsolatedAsyncioTestCase):
         ]), autoescape=select_autoescape())
         env.filters["expire"] = format_expire_short
         env.filters["num"] = format_number
+        env.filters["money"] = format_money
         def render(request: Request, name: str, context: dict) -> HTMLResponse:
             return HTMLResponse(env.get_template(name).render(request=request, csrf_token="token", **context))
         register_catalog_discounts(app, render=render, require_staff=auth, get_db=db)

@@ -308,7 +308,8 @@
     state.draft.dir = "ltr";
     state.draft.autocomplete = "off";
     state.draft.placeholder = state.source.placeholder || "مقدار جدید";
-    state.draft.dataset.normalizeDigits = "0";
+    state.draft.dataset.normalizeDigits = state.kind === "money" ? "1" : "0";
+    if (state.kind === "money") state.draft.setAttribute("data-money", "");
     if (LIMITS[state.kind]) state.draft.inputMode = "numeric";
     state.save = button("افزودن", "save");
     state.cancel = button("انصراف", "cancel");

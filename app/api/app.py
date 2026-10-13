@@ -126,6 +126,8 @@ templates.env.filters["ticket_status"] = ticket_status_fa
 templates.env.globals["app_version"] = local_version()
 templates.env.globals["panel_script_cache_key"] = get_panel_asset_cache_key("panel.js")
 templates.env.globals["panel_widget_cache_key"] = get_panel_asset_cache_key("panel_widget_request.js")
+templates.env.globals["money_inputs_cache_key"] = get_panel_asset_cache_key("money-inputs.js")
+templates.env.globals["list_inputs_cache_key"] = get_panel_asset_cache_key("list-inputs.js")
 try:
     from app.services.update_channel import badge_context as _badge_context_boot
 

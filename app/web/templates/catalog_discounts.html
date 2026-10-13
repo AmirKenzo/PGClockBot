@@ -47,7 +47,7 @@
         <select id="discount-kind" name="reduction_kind"><option value="percent">درصد</option><option value="amount">مبلغ ثابت (تومان)</option></select>
       </label>
       <label class="form-field" for="discount-value">مقدار کاهش
-        <input id="discount-value" name="reduction_value" type="number" min="1" max="2000000000" dir="ltr" required>
+        <input id="discount-value" name="reduction_value" type="number" data-money-kind="reduction_kind" data-money-value="amount" min="1" max="2000000000" dir="ltr" required>
       </label>
       <label class="form-field" for="discount-hours">مدت (ساعت)
         <input id="discount-hours" name="duration_hours" type="number" min="1" max="8760" value="24" dir="ltr">
@@ -95,7 +95,7 @@
           <td>{{ row.title }}</td>
           <td class="col-hide-sm">{{ scopes.get(row.scope) }}</td>
           <td class="col-hide-sm">{{ modes.get(row.mode) }}</td>
-          <td class="cell-tight"><span dir="ltr">{{ row.reduction_value | num }}</span> {{ '٪' if row.reduction_kind == 'percent' else 'تومان' }}</td>
+          <td class="cell-tight"><span dir="ltr">{{ row.reduction_value | num if row.reduction_kind == 'percent' else row.reduction_value | money }}</span> {{ '٪' if row.reduction_kind == 'percent' else 'تومان' }}</td>
           <td class="cell-tight">{% if row.ends_at %}<span dir="ltr" class="mono">{{ deadlines.get(row.id) }}</span> <small class="muted">(تهران)</small>{% else %}دائمی{% endif %}</td>
           <td class="cell-tight"><span class="badge {{ 'ok' if row.is_active else 'neutral' }}">{{ 'ثبت‌شده' if row.is_active else 'متوقف‌شده' }}</span></td>
           <td class="col-hide-sm cell-tight">{% if row.campaign_id %}<span class="badge {{ announcement_tones.get(announcement, 'neutral') }}">{{ announcement_labels.get(announcement, 'ثبت‌شده') }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
