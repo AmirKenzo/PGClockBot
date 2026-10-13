@@ -1060,11 +1060,13 @@ def admin_plans_audience_hub_keyboard(ui: dict | None = None) -> InlineKeyboardM
     return _pack_hub_keyboard(buttons, ui, back_callback="nv:adm:product")
 
 
+PLANS_VIEW_LABEL = "📋 مشاهده پلن‌ها"
+
+
 def admin_plans_kind_hub_keyboard(
     audience: str, ui: dict | None = None
 ) -> InlineKeyboardMarkup:
     """List-screen actions after choosing users/resellers audience."""
-    _ = audience
     from app.bot.reply_keyboards import (
         REPLY_ACTION_ADM_PLANS_ADD,
         REPLY_ACTION_ADM_PLANS_ADDONS,
@@ -1079,14 +1081,22 @@ def admin_plans_kind_hub_keyboard(
     }
     buttons = [
         _ikb(
-            text,
-            callback_data=cb_map[key],
+            PLANS_VIEW_LABEL,
+            callback_data=f"nv:adm:plans:list:{audience}",
             ui=ui,
-            action=key,
-            style=_style(ui, key, fallback="primary"),
-        )
-        for key, text in _admin_plans_list_entries(ui)
-        if key in cb_map
+            style=_style(ui, "adm_plans_view", fallback="primary"),
+        ),
+        *(
+            _ikb(
+                text,
+                callback_data=cb_map[key],
+                ui=ui,
+                action=key,
+                style=_style(ui, key, fallback="primary"),
+            )
+            for key, text in _admin_plans_list_entries(ui)
+            if key in cb_map
+        ),
     ]
     return _pack_hub_keyboard(buttons, ui, back_callback="nv:adm:plans")
 

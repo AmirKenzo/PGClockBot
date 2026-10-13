@@ -37,6 +37,9 @@ router = Router(name="admin_plans")
 # Kind hub (reply keyboard step) — not the same-kind screen
 BACK_USERS_KIND = "adm:plans:aud:users"
 BACK_RESELLERS_KIND = "adm:plans:aud:resellers"
+# Audience hub («مشاهده پلن‌ها» / افزودن / کاتالوگ)
+BACK_USERS_HUB = "nv:adm:plans:aud:users"
+BACK_RESELLERS_HUB = "nv:adm:plans:aud:resellers"
 # Re-open a specific kind list/detail screen
 BACK_USERS_FIXED_LIST = "adm:plans:kind:users:fixed"
 
@@ -250,8 +253,12 @@ async def send_kind_hub(
             pass
     await message.answer(text)
 
-async def send_users_plans_overview(message: Message, session: AsyncSession) -> None:
-    """User plans list — mirrors web /plans user table; plans inline, add on reply keyboard."""
+async def send_users_plans_overview(
+    message: Message, session: AsyncSession, state: FSMContext | None = None
+) -> None:
+    """User plans list — mirrors web /plans user table, shown by editing the live panel."""
+    from app.bot.nav_inline import present_nav_panel
+
     ui = await get_all_settings(session)
     result = await session.execute(select(Plan).order_by(Plan.sort_order, Plan.id))
     plans = list(result.scalars().all())
@@ -262,13 +269,20 @@ async def send_users_plans_overview(message: Message, session: AsyncSession) -> 
         f"پلن‌های ثابت: <b>{len(fixed)}</b>\n"
         "روی هر پلن بزنید تا ویرایش/حذف — یا «افزودن پلن» را بزنید."
     )
-    await message.answer(
-        text,
-        reply_markup=kb.admin_users_plans_overview_keyboard(plans, ui),
+    await present_nav_panel(
+        message,
+        text=text,
+        inline=kb.admin_users_plans_overview_keyboard(
+            plans, ui, back_callback=BACK_USERS_HUB
+        ),
+        state=state,
     )
 
-async def send_resellers_plans_overview(message: Message, session: AsyncSession) -> None:
-    """Reseller subscription plans — all rows inline like web /plans."""
+async def send_resellers_plans_overview(
+    message: Message, session: AsyncSession, state: FSMContext | None = None
+) -> None:
+    """Reseller plans — all rows inline like web /plans, shown by editing the live panel."""
+    from app.bot.nav_inline import present_nav_panel
     from app.services.pg_admin_subscription import is_addon_plan, is_subscription_plan
 
     all_plans = await list_reseller_plans(session)
@@ -289,11 +303,17 @@ async def send_resellers_plans_overview(message: Message, session: AsyncSession)
         f"اشتراک ثابت: <b>{len(fixed)}</b> · PAYG: <b>{len(payg)}</b> · بسته: <b>{len(addons)}</b>\n"
         "روی هر پلن بزنید — یا «افزودن پلن» را بزنید."
     )
-    await message.answer(
-        text,
-        reply_markup=kb.admin_resellers_plans_overview_keyboard(
-            fixed, payg, ui=await get_all_settings(session), addon_plans=addons
+    await present_nav_panel(
+        message,
+        text=text,
+        inline=kb.admin_resellers_plans_overview_keyboard(
+            fixed,
+            payg,
+            ui=await get_all_settings(session),
+            addon_plans=addons,
+            back_callback=BACK_RESELLERS_HUB,
         ),
+        state=state,
     )
 
 async def send_add_plan_type_picker(
@@ -736,18 +756,13 @@ async def plans_aud_inline_back(
         await callback.answer("نامعتبر", show_alert=True)
         return
     await state.update_data(_adm_plans_aud=aud, _adm_plans_kind=None)
+    await nav.set_nav_level(state, nav.NAV_ADMIN_PLANS_KIND, push=False)
     await callback.answer()
-    title = "کاربران" if aud == "users" else "نمایندگان"
     if callback.message:
-        try:
-            await callback.message.edit_text(f"💎 <b>پلن‌های {title}</b>", reply_markup=None)
-        except Exception:
-            pass
-        await sync_plans_reply_keyboard(callback.message, session, db_user, state, audience=aud)
         if aud == "users":
-            await send_users_plans_overview(callback.message, session)
+            await send_users_plans_overview(callback.message, session, state)
         else:
-            await send_resellers_plans_overview(callback.message, session)
+            await send_resellers_plans_overview(callback.message, session, state)
 
 @router.callback_query(F.data.startswith("adm:plans:kind:"))
 @require_bot_owner_handler

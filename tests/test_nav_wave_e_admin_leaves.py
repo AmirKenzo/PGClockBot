@@ -257,7 +257,9 @@ class PresentPlansAudienceInlineTests(unittest.IsolatedAsyncioTestCase):
         markup = message.answer.await_args.kwargs.get("reply_markup")
         data = [b.callback_data for row in markup.inline_keyboard for b in row]
         self.assertIn("nv:adm:ra:adm_plans_add", data)
-        overview.assert_awaited()
+        self.assertIn("nv:adm:plans:list:users", data)
+        overview.assert_not_awaited()
+        self.assertEqual(message.answer.await_count, 1)
         show_nav.assert_not_awaited()
 
 
