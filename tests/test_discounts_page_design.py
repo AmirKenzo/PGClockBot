@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from jinja2 import ChoiceLoader, DictLoader, Environment, FileSystemLoader, select_autoescape
 
-from app.services.formatting import format_number
+from app.services.formatting import format_money, format_number
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,6 +24,7 @@ def _render(**overrides) -> str:
         autoescape=select_autoescape(),
     )
     env.filters["num"] = format_number
+    env.filters["money"] = format_money
     row = SimpleNamespace(
         id=1, title="<b>Eid</b>", scope="all", mode="timed", reduction_kind="percent",
         reduction_value=10, ends_at=True, is_active=True, campaign_id=5,
