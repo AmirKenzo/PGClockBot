@@ -98,17 +98,33 @@
     setParts(tile.querySelector('[data-pg-node-rate-up-num]'), tile.querySelector('[data-pg-node-rate-up-unit]'), n.rate_up_parts);
     setParts(tile.querySelector('[data-pg-node-rate-down-num]'), tile.querySelector('[data-pg-node-rate-down-unit]'), n.rate_down_parts);
   }
+  function setLiveStatus(hasError) {
+    var status = document.getElementById('pg-live-status');
+    if (!hasError) {
+      if (status) status.remove();
+      return;
+    }
+    var root = document.getElementById('pg-dash');
+    if (!root || status) return;
+    status = document.createElement('div');
+    status.id = 'pg-live-status';
+    status.className = 'flash warn';
+    status.setAttribute('role', 'status');
+    status.textContent = 'آمار زنده به‌روز نشد. آخرین اطلاعات نمایش داده می‌شود؛ دریافت مجدد به‌صورت خودکار انجام می‌شود.';
+    root.prepend(status);
+  }
+  var metricsPending = false;
   async function tickNodes() {
-    if (document.hidden) return;
+    if (document.hidden || metricsPending) return;
     var e = els();
     if (!e.liveRoot && !e.hostRoot && !e.grid) return;
+    metricsPending = true;
     try {
-      var r = await fetch(e.url + (e.url.indexOf('?') >= 0 ? '&' : '?') + '_=' + Date.now(), {
+      var d = await PGClockPanelWidgetRequest.fetchJson(e.url + (e.url.indexOf('?') >= 0 ? '&' : '?') + '_=' + Date.now(), {
         cache: 'no-store',
         credentials: 'same-origin'
       });
-      if (!r.ok) return;
-      var d = await r.json();
+      setLiveStatus(false);
       if (e.cpuEl) e.cpuEl.textContent = fmtPct(d.cpu_percent);
       if (e.memEl) e.memEl.textContent = fmtPct(d.memory_percent);
       if (e.memHint && (d.memory_ratio_text || (d.memory_used_text && d.memory_total_text))) {
@@ -133,7 +149,11 @@
           applyNode(tile, n);
         });
       }
-    } catch (err) {}
+    } catch (err) {
+      setLiveStatus(true);
+    } finally {
+      metricsPending = false;
+    }
   }
   document.addEventListener('click', function (ev) {
     var tabsNav = document.querySelector('[data-pg-node-tabs]');
