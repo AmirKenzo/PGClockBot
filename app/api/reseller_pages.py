@@ -793,7 +793,17 @@ def register_reseller_pages(app, *, render, require_admin, get_db, require_staff
             return RedirectResponse(f"/resellers?err={_q('نماینده یافت نشد')}", status_code=303)
         mode = str(form.get("billing_mode") or "").strip().lower()
         if mode in {"fixed", "payg"}:
-            profile.billing_mode = mode
+            from app.services.billing_mode import switch_billing_mode
+
+            try:
+                await switch_billing_mode(
+                    session,
+                    profile,
+                    mode,
+                    confirmed=bool(form.get("confirm_billing_mode_change")),
+                )
+            except ValueError as e:
+                return _redirect_reseller_edit(user_id, err=str(e))
         perms = _feature_perms_from_form(form)
         profile.web_permissions = perms
         profile.bot_permissions = perms  # must stay identical
@@ -1583,15 +1593,19 @@ def register_reseller_pages(app, *, render, require_admin, get_db, require_staff
                 f"/resellers/plans/{plan_id}/edit?err={_q(str(e))}",
                 status_code=303,
             )
+        try:
+            payg_rate = (
+                require_positive_payg_rate(_parse_price_per_gb(form))
+                if billing_mode == "payg"
+                else 0
+            )
+        except ValueError as e:
+            return RedirectResponse(
+                f"/resellers/plans/{plan_id}/edit?err={_q(str(e))}",
+                status_code=303,
+            )
         if billing_mode == "payg":
-            try:
-                new_rate = require_positive_payg_rate(_parse_price_per_gb(form))
-            except ValueError as e:
-                return RedirectResponse(
-                    f"/resellers/plans/{plan_id}/edit?err={_q(str(e))}",
-                    status_code=303,
-                )
-            plan.price_per_gb = new_rate
+            plan.price_per_gb = payg_rate
             plan.pg_group_ids = pg_group_ids
             plan.allow_buy_extra = False
             plan.extra_gb_price = 0

@@ -125,3 +125,4 @@ tests/test_restart_button.py
 tests/test_payg_low_balance_alerts.py
 tests/test_payg_rate_validation.py
 tests/test_payg_tick_issue_alerts.py
+tests/test_payg_billing_mode.py
