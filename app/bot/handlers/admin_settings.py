@@ -27,6 +27,11 @@ from app.services.support_contacts import (
     support_chat_url,
     upsert_support_contact,
 )
+from app.services.settings_search import (
+    SEARCH_QUERY_MAX_LEN,
+    SettingsSearchEntry,
+    search_settings,
+)
 from app.services.users import get_all_settings, get_setting, on, set_setting
 from app.services.settings_button_labels import (
     BTN_PAY_CARD,
@@ -35,6 +40,7 @@ from app.services.settings_button_labels import (
     BTN_PAY_PSP,
     BTN_PAY_STARS,
     BTN_PAY_WALLET_DISCOUNT,
+    appearance_button_subs,
     shop_button_subs,
 )
 
@@ -166,10 +172,11 @@ SECTIONS: dict[str, dict] = {
         ],
     },
     "menu": {
-        "title": "منو",
+        "title": "ظاهر و دکمه‌ها",
         "subs": [
             ("layout", "چیدمان کیبورد", "menu_layout"),
             ("order", "ترتیب دکمه‌ها", "menu_order"),
+            *appearance_button_subs(),
         ],
     },
     "pay": {
@@ -347,6 +354,7 @@ class SettingsStates(StatesGroup):
     trial_name = State()
     trial_days = State()
     trial_gb = State()
+    search_query = State()
 
 
 def _field_lookup() -> dict[str, Field]:
@@ -950,6 +958,104 @@ async def settings_toggle(
             await session.commit()
     await callback.answer("ذخیره شد")
     await _rerender_after_key(callback, session, key)
+
+
+def _search_entries() -> list[SettingsSearchEntry]:
+    entries: list[SettingsSearchEntry] = []
+    for sec_id, sec in SECTIONS.items():
+        for sub_id, sub_title, payload, *_ in sec.get("subs") or []:
+            entries.append(
+                SettingsSearchEntry(
+                    label=sub_title, section_id=sec_id, section_title=sec["title"],
+                    sub_id=sub_id, sub_title=sub_title,
+                )
+            )
+            if isinstance(payload, list):
+                entries.extend(
+                    SettingsSearchEntry(
+                        label=label, section_id=sec_id, section_title=sec["title"],
+                        sub_id=sub_id, sub_title=sub_title, key=key,
+                    )
+                    for key, label, _kind in payload
+                )
+    return entries
+
+
+_SEARCH_ENTRIES = _search_entries()
+_SEARCH_PROMPT = (
+    "🔍 <b>جستجو در تنظیمات</b>\n"
+    "بخشی از نام گزینه را بفرستید؛ مثلاً «کارت»، «قوانین» یا «دکمه خرید».\n"
+    "برای انصراف: انصراف"
+)
+
+
+def _search_results_panel(query: str) -> Panel:
+    hits = search_settings(_SEARCH_ENTRIES, query)
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"{hit.label} — {hit.section_title}"[:60],
+                callback_data=f"adm:st:sub:{hit.section_id}:{hit.sub_id}",
+            )
+        ]
+        for hit in hits
+    ]
+    rows.append(
+        [InlineKeyboardButton(text="🔍 جستجوی دیگر", callback_data="adm:st:find")]
+    )
+    rows.append(_back_row(("⬅️ بازگشت", "adm:st:hub")))
+    head = (
+        f"🔍 <b>نتیجه‌ها</b> ({len(hits)})\nروی گزینه بزنید تا همان بخش باز شود."
+        if hits
+        else "🔍 چیزی پیدا نشد. با کلمه‌ی کوتاه‌تر یا نام دیگری امتحان کنید."
+    )
+    return head, _kb(rows)
+
+
+@settings_actor_required
+@router.callback_query(F.data == "adm:st:find")
+async def settings_search_ask(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession, db_user: BotUser
+):
+    if not _is_admin(db_user):
+        await callback.answer("ادمین نیستید", show_alert=True)
+        return
+    await callback.answer()
+    from app.bot.nav_input import ask_text
+
+    await ask_text(
+        callback,
+        state,
+        prompt=_SEARCH_PROMPT,
+        cancel_code="adm_set",
+        fsm_state=SettingsStates.search_query,
+        edit=True,
+    )
+
+
+@settings_actor_required
+@router.message(SettingsStates.search_query)
+async def settings_search_run(
+    message: Message, state: FSMContext, session: AsyncSession, db_user: BotUser
+):
+    if not _is_admin(db_user):
+        await state.clear()
+        return
+    text = (message.text or "").strip()
+    if not text or kb.is_cancel_text(text):
+        if text:
+            from app.bot.nav_input import try_legacy_cancel
+
+            if await try_legacy_cancel(message, state, session, db_user):
+                return
+        await _silent_settings_cancel(message, state, session, db_user)
+        return
+    body, markup = _search_results_panel(text[:SEARCH_QUERY_MAX_LEN])
+    await finish_text_step(message, state, text=body, inline=markup)
+    await state.clear()
+    await _keep_settings_nav(state)
+    await _delete_input_message(message)
+
 
 
 @settings_actor_required
