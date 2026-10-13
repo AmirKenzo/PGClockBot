@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.24": [
+        "ربات: تایپ «انصراف» در هر پرامپت متنی همان حباب پرامپت را به پنل قبلی تبدیل می‌کند و پیام تایپ‌شده حذف می‌شود (try_legacy_cancel)",
+        "همهٔ فلوهایی که cancel ثبت کرده‌اند بدون تغییر handler جداگانه این رفتار را می‌گیرند؛ تنظیمات از helper مشترک delete_user_message استفاده می‌کند",
+        "ریستور: restore/pre-v0.3.24-v0.3.23",
+    ],
     "0.3.23": [
         "ربات: همهٔ دکمه‌های بازگشت (به‌جز انصراف و صفحه‌بندی) از back_button استفاده می‌کنند — لیبل/آیکون/استایل از btn_back یکسان است",
         "callback_data عوض نشده؛ همان مرحلهٔ قبلی درجا باز می‌شود",
