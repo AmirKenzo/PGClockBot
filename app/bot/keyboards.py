@@ -7,6 +7,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
+from app.services.catalog_pricing import sale_price
 from app.config import get_settings
 from app.db.models import Plan, Role
 from app.services.support_contacts import (
@@ -1151,7 +1152,7 @@ def plans_keyboard(
         rows.append(
             [
                 _ikb(
-                    f"{cat}{p.name} — {p.price:,} ت".replace(",", "٬"),
+                    f"{cat}{p.name} — {sale_price(p):,} ت".replace(",", "٬"),
                     callback_data=f"shop:plan:{p.id}",
                     style=_plan_row_style(
                         ui, p, kind=kind or fallback_kind, category=cat_obj
@@ -1187,7 +1188,7 @@ def wholesale_plans_keyboard(
     rows = _pack_by_label_width(
         [
             _ikb(
-                f"{p.name} — {p.price:,} ت".replace(",", "٬"),
+                f"{p.name} — {sale_price(p):,} ت".replace(",", "٬"),
                 callback_data=f"shop:wholesale:plan:{p.id}",
                 style=_plan_row_style(ui, p, kind="wholesale"),
                 icon_custom_emoji_id=category_icon_for(p, categories),

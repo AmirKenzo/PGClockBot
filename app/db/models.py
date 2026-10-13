@@ -1472,3 +1472,33 @@ class MarketingPreference(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("bot_users.id", ondelete="CASCADE"), primary_key=True)
     shop_key: Mapped[int] = mapped_column(Integer, primary_key=True)  # 0 = platform
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class CatalogDiscount(Base):
+    """Shop price adjustments, with a deduplicated announcement campaign."""
+
+    __tablename__ = "catalog_discounts"
+    __table_args__ = (
+        UniqueConstraint("shop_key", "request_key", name="uq_catalog_discount_request"),
+        UniqueConstraint("shop_key", "active_slot", name="uq_catalog_discount_slot"),
+        Index("ix_catalog_discounts_shop_active", "shop_key", "is_active", "ends_at"),
+        Index("ix_catalog_discounts_shop_history", "shop_key", "id"),
+        Index("ix_catalog_discounts_campaign", "campaign_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    shop_key: Mapped[int] = mapped_column(Integer)
+    reseller_id: Mapped[Optional[int]] = mapped_column(ForeignKey("bot_users.id"), nullable=True)
+    active_slot: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    title: Mapped[str] = mapped_column(String(128))
+    scope: Mapped[str] = mapped_column(String(16))
+    plan_id: Mapped[Optional[int]] = mapped_column(ForeignKey("plans.id", ondelete="SET NULL"), nullable=True)
+    category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("plan_categories.id", ondelete="SET NULL"), nullable=True)
+    mode: Mapped[str] = mapped_column(String(16))
+    reduction_kind: Mapped[str] = mapped_column(String(16))
+    reduction_value: Mapped[int] = mapped_column(Integer)
+    ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    request_key: Mapped[str] = mapped_column(String(32))
+    campaign_id: Mapped[Optional[int]] = mapped_column(ForeignKey("targeted_campaigns.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

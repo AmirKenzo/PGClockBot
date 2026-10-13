@@ -11,12 +11,13 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.catalog_pricing import displayed_quote, price_html, quote_product, sale_price
 from app.bot import keyboards as kb
 from app.bot.tg_utils import safe_edit_text
 from app.config import get_settings
 from app.db.models import BotUser, UserService
 from app.services.formatting import format_message, format_toman, service_card
-from app.services.orders import get_plan, list_active_plans
+from app.services.orders import get_catalog_plan, list_active_plans
 from app.services.pasarguard import get_pg
 from app.services.users import get_all_settings
 from app.services.redact import user_safe_error
@@ -156,7 +157,7 @@ async def _show_automation(callback, session, db_user, service_id):
         if action != "renew" and not (choices[action] or enabled or choice_id or getattr(row, f"{action}_notice")):
             continue
         choice = await selected_choice(session, row, action)
-        label = f"{html.escape(choice.name)} — {format_toman(choice.price)}" if choice else "انتخاب نشده / در دسترس نیست"
+        label = f"{html.escape(choice.name)} — {format_toman(sale_price(choice))}" if choice else "انتخاب نشده / در دسترس نیست"
         lines.append(f"\n{'✅' if enabled else '▫️'} <b>{LABELS[action]}</b>\n{label}")
         if enabled and not choice:
             lines.append("⚠️ پلن یا بسته قبلی حذف یا غیرفعال شده؛ گزینه جدید انتخاب کنید.")
@@ -199,7 +200,7 @@ async def svc_auto_pick(callback: CallbackQuery, session: AsyncSession, db_user:
 
     categories = await shop_category_map(session)
     buttons = [[InlineKeyboardButton(
-        text=f"{p.name}{' — +' + amount_label(p) if action != 'renew' else ''} — {format_toman(p.price)}",
+        text=f"{p.name}{' — +' + amount_label(p) if action != 'renew' else ''} — {format_toman(sale_price(p))}",
         callback_data=f"svc:autoset:{service_id}:{action}:{p.id}",
         icon_custom_emoji_id=kb.category_icon_for(p, categories),
     )] for p in choices]
@@ -514,7 +515,7 @@ async def svc_renew(callback: CallbackQuery, session: AsyncSession, db_user: Bot
     rows = [
         [
             InlineKeyboardButton(
-                text=f"{p.name} — {format_toman(p.price, get_settings().currency)}",
+                text=f"{p.name} — {format_toman(sale_price(p), get_settings().currency)}",
                 callback_data=f"svc:renewpay:{svc_id}:{p.id}",
                 icon_custom_emoji_id=kb.category_icon_for(p, categories),
             )
@@ -543,7 +544,7 @@ async def svc_renew_preview(
 
     _, _, svc_id, plan_id = callback.data.split(":")
     svc = await session.get(UserService, int(svc_id))
-    plan = await get_plan(session, int(plan_id))
+    plan = await get_catalog_plan(session, int(plan_id))
     if not svc or not plan or svc.bot_user_id != db_user.id:
         await callback.answer("نامعتبر", show_alert=True)
         return
@@ -555,10 +556,10 @@ async def svc_renew_preview(
     await state.update_data(renewal_preview={
         "service_id": svc.id, "plan_id": plan.id, "price": preview["price"], "terms": preview["terms"], "request_key": preview["request_key"],
     })
-    lines = [f"پلن: {plan.name}", f"مبلغ: {format_toman(preview['price'], get_settings().currency)}", *preview["lines"], *preview["warnings"], "", preview["notice"]]
+    lines = [f"پلن: {plan.name}", *preview["lines"], *preview["warnings"], "", preview["notice"]]
     if callback.message:
         await safe_edit_text(
-            callback.message, format_message("🔄 پیش‌نمایش تمدید", html.escape("\n".join(lines))),
+            callback.message, format_message("🔄 پیش‌نمایش تمدید", html.escape("\n".join(lines)) + "\nمبلغ: " + price_html(displayed_quote(plan), get_settings().currency)),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="تأیید و ادامه", callback_data=f"svc:renewconfirm:{svc.id}:{plan.id}")],
                 [InlineKeyboardButton(text="انتخاب پلن دیگر", callback_data=f"svc:renew:{svc.id}")],
@@ -578,7 +579,7 @@ async def svc_renew_pay(
     ui = await get_all_settings(session)
     _, _, svc_id, plan_id = callback.data.split(":")
     svc = await session.get(UserService, int(svc_id))
-    plan = await get_plan(session, int(plan_id))
+    plan = await get_catalog_plan(session, int(plan_id))
     if not svc or not plan or svc.bot_user_id != db_user.id:
         await callback.answer("نامعتبر", show_alert=True)
         return
@@ -588,7 +589,7 @@ async def svc_renew_pay(
             show_alert=True,
         )
         return
-    if plan.price > 0 and not kb.any_checkout_method_enabled(ui):
+    if sale_price(plan) > 0 and not kb.any_checkout_method_enabled(ui):
         await callback.answer("هیچ روش پرداختی فعال نیست", show_alert=True)
         return
 
@@ -597,7 +598,7 @@ async def svc_renew_pay(
 
     try:
         quote = (await state.get_data()).get("renewal_preview") or {}
-        expected = {"service_id": svc.id, "plan_id": plan.id, "price": plan.price, "terms": renewal_terms(plan)}
+        expected = {"service_id": svc.id, "plan_id": plan.id, "price": sale_price(plan), "terms": renewal_terms(plan)}
         if not quote.get("request_key") or any(quote.get(k) != v for k, v in expected.items()):
             raise ValueError("پلن تغییر کرده یا پیش‌نمایش معتبر نیست؛ دوباره پلن تمدید را انتخاب کنید")
         order = await renew_service_with_plan(
@@ -606,6 +607,7 @@ async def svc_renew_pay(
             service=svc,
             plan=plan,
             request_key=quote["request_key"],
+            expected_price=quote["price"],
         )
         await state.update_data(renewal_preview=None)
     except Exception as e:
@@ -703,7 +705,7 @@ async def svc_addon(
             InlineKeyboardButton(
                 text=(
                     f"{'📦' if p.kind == 'volume' else '⏱'} {p.name} "
-                    f"(+{amount_label(p)}) — {format_toman(p.price, get_settings().currency)}"
+                    f"(+{amount_label(p)}) — {format_toman(sale_price(p), get_settings().currency)}"
                 ),
                 callback_data=f"svc:addonpay:{svc_id}:{p.id}",
                 icon_custom_emoji_id=kb.category_icon_for(p, categories),
@@ -788,7 +790,8 @@ async def svc_addon_pay(
     if not pack_matches_shop(pack, current_shop_reseller_id()):
         await callback.answer("این بسته در این فروشگاه نیست", show_alert=True)
         return
-    if pack.price > 0 and not kb.any_checkout_method_enabled(ui):
+    await quote_product(session, pack, shop_id=current_shop_reseller_id())
+    if sale_price(pack) > 0 and not kb.any_checkout_method_enabled(ui):
         await callback.answer("هیچ روش پرداختی فعال نیست", show_alert=True)
         return
     try:
@@ -832,9 +835,9 @@ async def svc_addon_pay(
 
     summary = format_message(
         f"➕ افزونه — سفارش #{order.id}",
-        f"{pack.name}\n"
+        f"{html.escape(pack.name)}\n"
         f"{kind_label(pack.kind)}: +{amount_label(pack)}\n"
-        f"مبلغ: <b>{format_toman(order.amount, get_settings().currency)}</b>",
+        f"مبلغ: {price_html(displayed_quote(pack), get_settings().currency)}",
     )
     if callback.message:
         from app.bot.menu_nav import present_order_pay

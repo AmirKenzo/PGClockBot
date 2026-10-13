@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}تخفیف و قیمت‌گذاری{% endblock %}
+{% block content %}
+<div class="page-head"><h1>تخفیف و قیمت‌گذاری فروشگاه</h1></div>
+{% if request.query_params.get('error') %}<div class="card" role="alert">{{ request.query_params.get('error') }}</div>{% endif %}
+<div class="card">
+  <h2>تخفیف جدید یا کاهش دائمی قیمت</h2>
+  <p>کاهش دائمی بدون برچسب تخفیف نمایش داده می‌شود. تخفیف زمان‌دار، قیمت قبلی و قیمت جدید را نشان می‌دهد و پس از پایان خودکار حذف می‌شود.</p>
+  <p>در محدوده‌های هم‌زمان، بیشترین کاهش هر حالت اعمال می‌شود. کاهش دائمی ابتدا قیمت پایه را تعیین می‌کند. پلن تست رایگان شامل تغییر قیمت نمی‌شود.</p>
+  <form method="post" action="/catalog-discounts" class="form-stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="request_key" value="{{ request_key }}">
+    <div class="form-field"><label for="discount-title">عنوان اطلاع‌رسانی</label><input id="discount-title" name="title" maxlength="128" required></div>
+    <div class="form-field"><label for="discount-scope">محدوده</label><select id="discount-scope" name="scope">{% for key, label in scopes.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
+    <div class="form-field"><label for="discount-plan">سرویس / پلن (برای محدودهٔ یک سرویس)</label><select id="discount-plan" name="plan_id"><option value="">انتخاب کنید</option>{% for plan in plans %}<option value="{{ plan.id }}">{{ plan.name }}</option>{% endfor %}</select></div>
+    <div class="form-field"><label for="discount-category">دسته‌بندی (برای محدودهٔ یک دسته)</label><select id="discount-category" name="category_id"><option value="">انتخاب کنید</option>{% for category in categories %}<option value="{{ category.id }}">{{ category.name }}</option>{% endfor %}</select></div>
+    <div class="form-field"><label for="discount-mode">حالت</label><select id="discount-mode" name="mode">{% for key, label in modes.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
+    <div class="form-field"><label for="discount-kind">نوع کاهش</label><select id="discount-kind" name="reduction_kind"><option value="percent">درصد</option><option value="amount">مبلغ ثابت (تومان)</option></select></div>
+    <div class="form-field"><label for="discount-value">مقدار کاهش</label><input id="discount-value" name="reduction_value" type="number" min="1" max="2000000000" dir="ltr" required></div>
+    <div class="form-field"><label for="discount-hours">مدت به ساعت (فقط تخفیف زمان‌دار)</label><input id="discount-hours" name="duration_hours" type="number" min="1" max="8760" value="24" dir="ltr"></div>
+    <div class="form-field"><label><input type="checkbox" name="notify" value="1" checked> اطلاع‌رسانی به مشتریان همین فروشگاه با ذکر مدت</label></div>
+    <p>همهٔ بخش‌ها شامل پلن ثابت، دلخواه، تمدید، خرید عمده و بستهٔ حجم و زمان مشتریان است. دسته‌بندی شامل پلن‌ها و بسته‌های همان دسته است.</p>
+    <button class="btn btn-ok" type="submit">ثبت قیمت و صف اطلاع‌رسانی</button>
+  </form>
+</div>
+<div class="card">
+  <h2>تاریخچه</h2>
+  {% for row in discounts %}
+  <article class="card">
+    <h3>{{ row.title }}</h3>
+    <p>{{ scopes.get(row.scope) }} · {{ modes.get(row.mode) }} · <span dir="ltr">{{ row.reduction_value | num }}</span> {{ '٪' if row.reduction_kind == 'percent' else 'تومان' }}</p>
+    <p>پایان: {% if row.ends_at %}<span dir="ltr">{{ deadlines.get(row.id) }}</span> (تهران){% else %}دائمی{% endif %} · {{ 'ثبت‌شده' if row.is_active else 'متوقف‌شده' }}</p>
+    {% if row.campaign_id %}<p>اطلاع‌رسانی: {{ {'running':'در صف ارسال', 'paused':'متوقف', 'completed':'تکمیل‌شده', 'review':'نیازمند بررسی نتیجهٔ ارسال'}.get(announcement_status.get(row.campaign_id), 'ثبت‌شده') }}</p>{% endif %}
+    {% if row.is_active %}
+    <form method="post" action="/catalog-discounts/{{ row.id }}/stop" data-confirm="این تغییر قیمت متوقف می‌شود و قیمت‌ها با قوانین باقی‌مانده محاسبه می‌شوند. اطلاع‌رسانی باقی‌مانده نیز متوقف می‌شود. ادامه می‌دهید؟">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn btn-danger" type="submit">توقف تغییر قیمت و اطلاع‌رسانی</button>
+    </form>
+    {% endif %}
+  </article>
+  {% else %}<p>هنوز تغییری در قیمت ثبت نشده است.</p>{% endfor %}
+  {% if next_before %}<a class="btn" href="/catalog-discounts?before={{ next_before }}">تاریخچهٔ قدیمی‌تر</a>{% endif %}
+</div>
+{% endblock %}
