@@ -320,7 +320,7 @@ def _admin_settings_submenu_entries(ui: dict | None = None) -> list[tuple[str, s
     # Labels MUST match admin_settings.SECTIONS[*]["title"] for HUB_ORDER keys
     return [
         ("adm_st_shop", "فروشگاه"),
-        ("adm_st_menu", "منو"),
+        ("adm_st_menu", "ظاهر و دکمه‌ها"),
         ("adm_st_pay", "پرداخت"),
         ("adm_st_support", "پشتیبان‌ها"),
         ("adm_st_access", "دسترسی"),

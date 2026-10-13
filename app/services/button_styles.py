@@ -214,7 +214,7 @@ BUTTON_STYLE_CATALOG: list[dict[str, str]] = [
     {"id": "pg_template", "label": "ساخت تمپلیت پاسارگارد", "group": "پاسارگارد", "default": "primary"},
     # Admin settings sub (reply hub — ids must match adm_st_* / adm_st_panel actions)
     {"id": "adm_st_shop", "label": "تنظیمات: فروشگاه", "group": "تنظیمات ادمین", "default": ""},
-    {"id": "adm_st_menu", "label": "تنظیمات: منو", "group": "تنظیمات ادمین", "default": ""},
+    {"id": "adm_st_menu", "label": "تنظیمات: ظاهر و دکمه‌ها", "group": "تنظیمات ادمین", "default": ""},
     {"id": "adm_st_pay", "label": "تنظیمات: پرداخت", "group": "تنظیمات ادمین", "default": ""},
     {"id": "adm_st_support", "label": "تنظیمات: پشتیبان‌ها", "group": "تنظیمات ادمین", "default": ""},
     {"id": "adm_st_access", "label": "تنظیمات: دسترسی", "group": "تنظیمات ادمین", "default": ""},
