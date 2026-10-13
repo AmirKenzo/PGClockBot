@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.36": [
+        "ربات: لمس دکمهٔ قدیمی کیبورد پایین که دیگر وجود ندارد، پیام کوتاه «منو به‌روز شده است» با کیبورد فعلی می‌فرستد (حداکثر هر ۳۰ ثانیه) (#722)",
+        "ریستور: restore/pre-v0.3.36-v0.3.35",
+    ],
     "0.3.35": [
         "ربات: ردیف «شروع مجدد» روی کیبورد پایین منوی اصلی (قابل ویرایش/خاموش از تنظیمات btn_restart و show_restart_button) (#721)",
         "ریستور: restore/pre-v0.3.35-v0.3.34",
