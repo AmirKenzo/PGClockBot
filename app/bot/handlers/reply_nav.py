@@ -14,6 +14,7 @@ from aiogram.filters import BaseFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot import keyboards as kb
@@ -762,6 +763,44 @@ async def open_reseller_apply(
     await present_inline_only(message, text=text, inline=inline)
     return
 
+async def _open_main_bot_reseller_hub(
+    message: Message,
+    session: AsyncSession,
+    db_user: BotUser,
+    state: FSMContext | None,
+    *,
+    push: bool,
+) -> None:
+    from app.bot.auth import bot_may_open_pg_hub
+    from app.bot.nav_inline import present_nav_panel, reseller_main_bot_hub_keyboard
+    from app.services.reseller_access import load_reseller_capacity_actor
+
+    owner_id, profile = await load_reseller_capacity_actor(
+        session, db_user, is_reseller_bot=False, reseller_owner_id=None
+    )
+    if not owner_id or profile is None:
+        await open_reseller_creds(
+            message, session, db_user, is_reseller_bot=False, reseller_owner_id=None
+        )
+        return
+    try:
+        show_pg = await bot_may_open_pg_hub(session, db_user, is_reseller_bot=False)
+    except SQLAlchemyError:
+        logger.warning("reseller hub pg gate failed", exc_info=True)
+        show_pg = False
+    ui = await get_all_settings(session)
+    if state is not None:
+        await nav.set_nav_level(state, nav.NAV_RESELLER, push=push)
+    await present_nav_panel(
+        message,
+        text=format_message(
+            "🤝 پنل نماینده", "یک بخش را از دکمه‌های زیر انتخاب کنید."
+        ),
+        inline=reseller_main_bot_hub_keyboard(profile, ui, show_pg=show_pg),
+        state=state,
+    )
+
+
 async def open_reseller_home(
     message: Message,
     session: AsyncSession,
@@ -776,12 +815,8 @@ async def open_reseller_home(
     from app.services.reseller_access import load_reseller_actor
 
     if not is_reseller_bot:
-        await open_reseller_creds(
-            message,
-            session,
-            db_user,
-            is_reseller_bot=is_reseller_bot,
-            reseller_owner_id=reseller_owner_id,
+        await _open_main_bot_reseller_hub(
+            message, session, db_user, state, push=push
         )
         return
     owner_id, profile = await load_reseller_actor(
@@ -957,13 +992,14 @@ async def open_pg_home(
     )
     if state is not None:
         await nav.set_nav_level(state, nav.NAV_ADMIN_PG, push=push)
-    back_callback = "nv:res:home" if is_reseller_bot else "nv:adm:product"
+    is_reseller_actor = is_reseller_bot or db_user.role == Role.RESELLER.value
+    back_callback = "nv:res:home" if is_reseller_actor else "nv:adm:product"
     if not feats:
         from app.bot.nav_inline import admin_product_hub_keyboard
 
         unavailable_keyboard = (
             pg_hub_keyboard(ui, features=feats, back_callback=back_callback)
-            if is_reseller_bot
+            if is_reseller_actor
             else admin_product_hub_keyboard(ui, pg_features=feats)
         )
         await present_nav_panel(

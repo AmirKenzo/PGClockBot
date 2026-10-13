@@ -185,10 +185,11 @@ def _reply_user_entries(
         if show_reseller_creds:
             entries.append((REPLY_ACTION_ADMIN_PG, _t(ui, "btn_adm_pg")))
     elif show_reseller_creds:
-        entries.append((REPLY_ACTION_CREDS, _t(ui, "btn_reseller_creds")))
-        # Platform bot: shop owner can renew / buy capacity without opening shop panel
-        entries.extend(_reseller_capacity_entries(profile))
-        entries.append((REPLY_ACTION_ADMIN_PG, _t(ui, "btn_adm_pg")))
+        # Platform bot: access card, renew/capacity and PasarGuard live on the
+        # inline reseller hub behind this single entry.
+        entries.append(
+            (REPLY_ACTION_RESELLER, _t(ui, "btn_reseller") or "🤝 پنل نماینده")
+        )
     if role == Role.ADMIN.value:
         entries.append((REPLY_ACTION_ADMIN, _t(ui, "btn_admin")))
     return entries
@@ -1064,6 +1065,13 @@ def reply_action_map(
                 mapping.setdefault(apply_label, REPLY_ACTION_RESELLER_APPLY)
         # L1 on the platform bot: register migrated PG submenu labels (not overview).
         if show_reseller_creds and not is_reseller_bot:
+            # Stale reply keyboards still carry the pre-hub entry labels.
+            for legacy_key, legacy_label in (
+                (REPLY_ACTION_CREDS, _t(ui, "btn_reseller_creds")),
+                (REPLY_ACTION_ADMIN_PG, _t(ui, "btn_adm_pg")),
+            ):
+                if (legacy_label or "").strip():
+                    mapping.setdefault(legacy_label.strip(), legacy_key)
             l1_pg = frozenset(
                 {"pg_users", "pg_nodes", "pg_templates", "pg_groups"}
             )

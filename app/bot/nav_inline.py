@@ -854,6 +854,50 @@ def reseller_manage_hub_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def reseller_main_bot_hub_keyboard(
+    profile,
+    ui: dict | None = None,
+    *,
+    show_pg: bool = False,
+) -> InlineKeyboardMarkup:
+    """Shop owner hub on the platform bot: access card, PasarGuard and capacity."""
+    from app.bot.keyboards import REPLY_ACTION_ADMIN_PG, REPLY_ACTION_CREDS
+    from app.bot.reply_keyboards import _reseller_capacity_entries
+
+    buttons = [
+        _ikb(
+            _t(ui, "btn_reseller_creds") or "🔑 اطلاعات ورود",
+            callback_data=f"nv:res:ra:{REPLY_ACTION_CREDS}",
+            ui=ui,
+            action=REPLY_ACTION_CREDS,
+            style=_style(ui, REPLY_ACTION_CREDS, fallback="primary"),
+        )
+    ]
+    if show_pg:
+        buttons.append(
+            _ikb(
+                _t(ui, "btn_adm_pg"),
+                callback_data="nv:adm:pg",
+                ui=ui,
+                action=REPLY_ACTION_ADMIN_PG,
+                style=_style(ui, REPLY_ACTION_ADMIN_PG, fallback="primary"),
+            )
+        )
+    buttons.extend(
+        _ikb(
+            text,
+            callback_data=f"nv:res:ra:{key}",
+            ui=ui,
+            action=key,
+            style=_style(ui, key, fallback="primary"),
+        )
+        for key, text in _reseller_capacity_entries(profile)
+    )
+    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    rows.append(_hub_back_row(ui, callback_data="menu:home"))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 # ── Wave E: admin / reseller leaf hubs ─────────────────────────────────────
 
 
