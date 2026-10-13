@@ -217,6 +217,8 @@ async def build_action_center(
                     Plan.duration_days.is_not(None),
                     UserService.created_at.is_not(None),
                     UserService.created_at >= scan_since,
+                    UserService.quota_synced_at.is_(None),
+                    UserService.is_cancelled.is_(False),
                     BotUser.reseller_id.is_(None)
                     if reseller_id is None
                     else BotUser.reseller_id == int(reseller_id),
@@ -235,6 +237,25 @@ async def build_action_center(
                 continue
             if now <= exp <= cutoff:
                 expiring += 1
+
+    synced_q = (
+        select(func.count())
+        .select_from(UserService)
+        .join(BotUser, BotUser.id == UserService.bot_user_id)
+        .where(
+            UserService.quota_synced_at.is_not(None),
+            UserService.quota_expire_at.is_not(None),
+            UserService.quota_expire_at >= now,
+            UserService.quota_expire_at <= cutoff,
+            UserService.is_cancelled.is_(False),
+        )
+    )
+    synced_q = synced_q.where(
+        BotUser.reseller_id.is_(None)
+        if reseller_id is None
+        else BotUser.reseller_id == int(reseller_id)
+    )
+    expiring += int((await session.execute(synced_q)).scalar() or 0)
 
     items: list[dict[str, Any]] = []
     if pending:
@@ -285,7 +306,10 @@ async def build_action_center(
         select(func.count())
         .select_from(UserService)
         .join(BotUser, BotUser.id == UserService.bot_user_id)
-        .where(UserService.notified_traffic.is_(True))
+        .where(
+            UserService.notified_traffic.is_(True),
+            UserService.is_cancelled.is_(False),
+        )
     )
     if reseller_id is None:
         low_q = low_q.where(BotUser.reseller_id.is_(None))
