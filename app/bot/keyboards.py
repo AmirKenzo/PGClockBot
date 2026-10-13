@@ -1324,6 +1324,7 @@ def custom_confirm_keyboard(ui: dict | None = None) -> InlineKeyboardMarkup:
             ],
             [InlineKeyboardButton(text="✏️ تغییر روز", callback_data="shop:custom:gb:next")],
             [InlineKeyboardButton(text="✏️ تغییر حجم", callback_data="shop:custom")],
+            [back_button(ui, "shop:list")],
         ]
     )
 
