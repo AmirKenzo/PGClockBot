@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.28": [
+        "ربات: جستجوی تنظیمات یک غلط املایی (شباهت ≥۰٫۷۵) و ارقام فارسی/عربی–لاتین را تحمل می‌کند (#698)",
+        "نماینده: بازگشت از هاب PasarGuard به خانهٔ نماینده (نه هاب مالک) — دیگر خطای دسترسی مالک نمی‌دهد (#702)",
+        "ریستور: restore/pre-v0.3.28-v0.3.27",
+    ],
     "0.3.27": [
         "تست: هندلرهای تنظیمات برای غیر‌ادمین رد می‌شوند؛ کیبورد هر هاب اینلاین با ردیف بازگشت تمام می‌شود",
         "تست authorization تنظیمات به security manifest اضافه شد",
