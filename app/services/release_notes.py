@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.26": [
+        "ربات: انصراف اینلاین از ورودی‌های نماینده/وفاداری/پلن‌ها دیگر پیام «لغو شد.» جدا و پنل جدید نمی‌فرستد — پنل قبلی با present_nav_panel درجا باز می‌شود",
+        "حذف پیام تایپ‌شده best-effort است؛ خطای Telegram API (مثلاً forbidden/rate-limit) فلو را بعد از ذخیره قطع نمی‌کند",
+        "ریستور: restore/pre-v0.3.26-v0.3.25",
+    ],
     "0.3.25": [
         "ربات: دکمهٔ «بازگشت» به صفحه‌هایی که بدون ناوبری تمام می‌شدند اضافه شد (تأیید پلن سفارشی، خطای کارت کاربر PG، گروه‌ها/تمپلیت‌ها/نودها، درخواست نماینده خالی، آمار/کیف پول نماینده)",
         "بازگشت همان پیام را ویرایش می‌کند",
