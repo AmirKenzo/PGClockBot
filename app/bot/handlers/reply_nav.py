@@ -955,13 +955,19 @@ async def open_pg_home(
     )
     if state is not None:
         await nav.set_nav_level(state, nav.NAV_ADMIN_PG, push=push)
+    back_callback = "nv:res:home" if is_reseller_bot else "nv:adm:product"
     if not feats:
         from app.bot.nav_inline import admin_product_hub_keyboard
 
+        unavailable_keyboard = (
+            pg_hub_keyboard(ui, features=feats, back_callback=back_callback)
+            if is_reseller_bot
+            else admin_product_hub_keyboard(ui, pg_features=feats)
+        )
         await present_nav_panel(
             message,
             text="🖥 پاسارگارد در دسترس نیست — به محصول برگردید.",
-            inline=admin_product_hub_keyboard(ui, pg_features=feats),
+            inline=unavailable_keyboard,
             state=state,
         )
         return
@@ -969,7 +975,10 @@ async def open_pg_home(
         message,
         text=body,
         inline=pg_hub_keyboard(
-            ui, features=feats, can_create_user=can_create
+            ui,
+            features=feats,
+            can_create_user=can_create,
+            back_callback=back_callback,
         ),
         state=state,
     )

@@ -121,35 +121,38 @@ async def sync_plans_reply_keyboard(
     await present_inline_only(message, text=body, inline=inline)
     return
 
-async def _answer_plans_cancel(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    """Cancel free-text plans FSM: restore main KB and reopen the plans hub."""
+async def _answer_plans_cancel(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    db_user: BotUser | None = None,
+) -> None:
+    """Cancel free-text plans FSM: reopen the plans hub (heal the main KB for typed cancels)."""
     from app.bot.nav_chrome import heal_main_reply
-    from app.db.models import BotUser
-    from sqlalchemy import select
+    from app.bot.nav_inline import is_bot_panel_message
 
     await state.set_state(None)
-    tg_id = getattr(getattr(message, "from_user", None), "id", None)
-    db_user = None
-    if tg_id is not None:
-        db_user = (
-            await session.execute(
-                select(BotUser).where(BotUser.telegram_id == int(tg_id))
-            )
-        ).scalar_one_or_none()
+    if db_user is None:
+        tg_id = getattr(getattr(message, "from_user", None), "id", None)
+        if tg_id is not None:
+            db_user = (
+                await session.execute(
+                    select(BotUser).where(BotUser.telegram_id == int(tg_id))
+                )
+            ).scalar_one_or_none()
     if db_user is None:
         await message.answer("لغو شد.")
         return
-    await heal_main_reply(
-        message,
-        session,
-        db_user,
-        text="کیبورد اصلی بازیابی شد.",
-        is_reseller_bot=False,
-        reseller_owner_id=None,
-    )
-    # Reopen current plans level (audience/kind) — not the main menu dump.
+    if not is_bot_panel_message(message):
+        await heal_main_reply(
+            message,
+            session,
+            db_user,
+            text="کیبورد اصلی بازیابی شد.",
+            is_reseller_bot=False,
+            reseller_owner_id=None,
+        )
     await sync_plans_reply_keyboard(message, session, db_user, state)
-    return
 
 async def _answer_plans_saved(message: Message, state: FSMContext, session: AsyncSession, text: str) -> None:
     from app.bot.menu_nav import build_main_reply_keyboard

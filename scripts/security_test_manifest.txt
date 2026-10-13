@@ -112,3 +112,4 @@ tests/test_v4_1_1_reseller_pg_role_access.py
 tests/test_demo_users.py
 tests/test_web_list_inputs.py
 tests/test_plans_single_message.py
+tests/test_admin_settings_authorization.py

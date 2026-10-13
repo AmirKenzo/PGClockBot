@@ -117,3 +117,32 @@ class SearchFlowTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FuzzySearchTests(unittest.TestCase):
+    def _keys(self, query: str) -> list[str]:
+        return [e.key for e in search_settings(admin_settings._SEARCH_ENTRIES, query)]
+
+    def test_one_typo_still_finds_the_field(self):
+        self.assertIn("card_number", self._keys("شماره کارط"))
+
+    def test_exact_matches_rank_before_typo_matches(self):
+        entries = [
+            SettingsSearchEntry("کارد", "s", "s", "a", "a", key="near"),
+            SettingsSearchEntry("کارت", "s", "s", "b", "b", key="exact"),
+        ]
+        self.assertEqual([e.key for e in search_settings(entries, "کارت")], ["exact", "near"])
+
+    def test_short_words_do_not_fuzzy_match(self):
+        entry = SettingsSearchEntry("نام", "s", "s", "a", "a")
+        self.assertEqual(search_settings([entry], "نخ"), [])
+
+    def test_persian_and_latin_digits_are_equivalent(self):
+        entry = SettingsSearchEntry("پورت 8080", "s", "s", "a", "a", key="port")
+        self.assertEqual(len(search_settings([entry], "۸۰۸۰")), 1)
+        entry_fa = SettingsSearchEntry("پورت ۸۰۸۰", "s", "s", "a", "a", key="port2")
+        self.assertEqual(len(search_settings([entry_fa], "8080")), 1)
+        self.assertEqual(normalize_search_text("٣٤"), "34")
+
+    def test_unrelated_query_still_returns_nothing(self):
+        self.assertEqual(self._keys("ززززز"), [])
