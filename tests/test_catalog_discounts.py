@@ -8,6 +8,8 @@ import secrets
 import tempfile
 import unittest
 from dataclasses import replace
+from html.parser import HTMLParser
+from urllib.parse import parse_qs, urlsplit
 from datetime import datetime, timedelta, timezone
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -46,6 +48,17 @@ ROOT = Path(__file__).resolve().parents[1]
 OWNER = {"role": "admin", "org_principal_id": 1, "org_depth": 0, "org_status": "active"}
 SHOP = {"role": "reseller", "bot_user_id": 2, "permissions": ["catalog_discounts"]}
 OTHER_SHOP = {**SHOP, "bot_user_id": 3}
+
+
+class ScriptSources(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.sources: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        source = dict(attrs).get("src")
+        if tag == "script" and source:
+            self.sources.append(source)
 
 
 class CatalogDiscountTests(unittest.IsolatedAsyncioTestCase):
@@ -292,6 +305,13 @@ class CatalogDiscountTests(unittest.IsolatedAsyncioTestCase):
         item = next(item for item in payload["plans"] if item["id"] == 1)
         self.assertEqual((item["price"], item["original_price"]), (80, 100))
         self.assertIsNotNone(item["discount_ends_at"])
+        env = Environment(loader=FileSystemLoader(ROOT / "app/web/templates"), autoescape=select_autoescape())
+        parser = ScriptSources()
+        parser.feed(env.get_template("miniapp.html").render(app_version="test"))
+        core = next(url for url in parser.sources if urlsplit(url).path == "/static/miniapp.js")
+        prices = next(url for url in parser.sources if urlsplit(url).path == "/static/catalog_price.js")
+        self.assertEqual(parse_qs(urlsplit(core).query).get("discounts"), ["1"])
+        self.assertLess(parser.sources.index(prices), parser.sources.index(core))
 
     async def test_management_page_escapes_titles_and_rejects_other_shop_stop(self) -> None:
         row = await self.create(SHOP, title="<img src=x onerror=alert(1)>", notify=False)
