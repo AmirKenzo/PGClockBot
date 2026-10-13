@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.39": [
+        "ربات: دکمهٔ «شروع مجدد» آیکون پریمیوم ذخیره‌شده در btn_restart را نشان می‌دهد (دیگر از btn_menu_home خوانده نمی‌شود) (#729)",
+        "ریستور: restore/pre-v0.3.39-v0.3.38",
+    ],
     "0.3.38": [
         "اینباکس: حذف هشدار با seen_count — با آیتم جدید دوباره ظاهر می‌شود؛ ردیف‌های منقضی پاک می‌شوند؛ سرویس‌های لغوشده در نزدیک‌انقضا/حجم‌کم نیستند (#724)",
         "مایگریشن 0047؛ رفع تطبیق staff با endswith که می‌توانست dismissal نقش دیگر را ببیند",
