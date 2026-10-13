@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import inspect
-import logging
-
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -16,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot import keyboards as kb
 from app.bot.auth import bot_admin_settings_in_flow, is_platform_admin as _is_admin
 from app.bot.auth import require_bot_owner
-from app.bot.nav_input import finish_text_step
+from app.bot.nav_input import delete_user_message, finish_text_step
 from app.bot.tg_utils import safe_edit_text
 from app.db.models import BotUser, Plan
 from app.services.notifications import NOTIFY_PREFS
@@ -52,14 +49,6 @@ def _hub_markup(ui: dict[str, str]) -> InlineKeyboardMarkup:
     return admin_settings_hub_keyboard(ui)
 
 
-async def _delete_input_message(message: Message) -> None:
-    """Remove the operator's typed value so the edited panel stays the only bubble."""
-    try:
-        await message.delete()
-    except TelegramBadRequest:
-        logger.debug("could not delete settings input message", exc_info=True)
-
-
 async def _silent_settings_cancel(
     message: Message,
     state: FSMContext,
@@ -73,9 +62,8 @@ async def _silent_settings_cancel(
     )
     await state.clear()
     await _keep_settings_nav(state)
-    await _delete_input_message(message)
+    await delete_user_message(message)
 
-logger = logging.getLogger(__name__)
 Panel = tuple[str, InlineKeyboardMarkup]
 
 router = Router(name="admin_settings")
@@ -862,7 +850,7 @@ async def _finish_settings_text_edit(
     await finish_text_step(message, state, text=f"{note}\n\n{text}", inline=markup)
     await state.clear()
     await _keep_settings_nav(state)
-    await _delete_input_message(message)
+    await delete_user_message(message)
 
 
 # ----- callbacks: navigation -----
@@ -1054,7 +1042,7 @@ async def settings_search_run(
     await finish_text_step(message, state, text=body, inline=markup)
     await state.clear()
     await _keep_settings_nav(state)
-    await _delete_input_message(message)
+    await delete_user_message(message)
 
 
 
