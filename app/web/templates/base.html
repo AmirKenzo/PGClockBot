@@ -238,7 +238,10 @@
           </a>
           {% endif %}
           {% if is_owner or 'catalog_discounts' in perms %}
-          <a href="/catalog-discounts" class="nav-item nav-item-bot {% if path.startswith('/catalog-discounts') %}active{% endif %}"><span>تخفیف و قیمت‌گذاری</span></a>
+          <a href="/catalog-discounts" class="nav-item nav-item-bot {% if path.startswith('/catalog-discounts') %}active{% endif %}">
+            <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5 5 19"/><circle cx="7.5" cy="7.5" r="2.2"/><circle cx="16.5" cy="16.5" r="2.2"/></svg>
+            <span>تخفیف‌ها</span>
+          </a>
           {% endif %}
           {% if is_owner or 'campaigns' in perms %}
           <a href="/campaigns" class="nav-item nav-item-bot {% if path.startswith('/campaigns') %}active{% endif %}"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l5 4V6L7 10H4zM17 8v8M21 6v12"/></svg><span>کمپین هدفمند</span></a>
