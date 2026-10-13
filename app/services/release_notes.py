@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.44": [
+        "پنل وب: گروه‌بندی زندهٔ ارقام پول روی ورودی‌های جاافتاده (پیش‌فرض شارژ، کاهش کاتالوگ، جایزه/چرخ کیف‌پول) و کش محتوایی اسکریپت‌های money/list (#734)",
+        "ریستور: restore/pre-v0.3.44-v0.3.43",
+    ],
     "0.3.43": [
         "پنل وب: تأیید تغییر حالت PAYG و حذف کلید API با سوئیچ مشترک (هماهنگ با بقیهٔ بولین‌ها) (#738)",
         "ریستور: restore/pre-v0.3.43-v0.3.42",
