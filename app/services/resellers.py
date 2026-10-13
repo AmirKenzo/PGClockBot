@@ -725,7 +725,13 @@ async def make_reseller(
 
     # Fresh install: map this shop to its depth-1 Principal now (idempotent).
     await bind_reseller_profile_principal(session, profile)
+    is_payg_profile = str(profile.billing_mode or "").lower() == "payg"
     await session.commit()
+    if is_payg_profile:
+        # billing -> billing_alerts -> reseller_access imports this module.
+        from app.services.billing import ensure_billing_enabled
+
+        await ensure_billing_enabled(session)
     await session.refresh(profile)
     return profile
 

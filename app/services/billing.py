@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ResellerBillingRate, ResellerBillingTransaction, ResellerProfile
+from app.services.billing_alerts import claim_low_balance_warning, notify_low_balance
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +316,17 @@ async def is_billing_enabled(session: AsyncSession) -> bool:
     from app.services.users import get_setting, on
 
     return on(await get_setting(session, SETTING_ENABLED, "0"))
+
+
+async def ensure_billing_enabled(session: AsyncSession) -> bool:
+    """Turn PAYG billing on when a PAYG reseller exists. Returns True if it was switched on."""
+    from app.services.users import set_setting
+
+    if await is_billing_enabled(session):
+        return False
+    await set_setting(session, SETTING_ENABLED, "1")
+    logger.info("PAYG billing enabled automatically for a new PAYG reseller")
+    return True
 
 
 async def get_on_empty_policy(session: AsyncSession) -> str:
@@ -912,24 +924,13 @@ async def tick_reseller_usage(
 async def maybe_warn_low_balance(
     session: AsyncSession,
     profile: ResellerProfile,
-) -> bool:
-    """Return True once when balance crosses below threshold (needs notify)."""
+) -> tuple[int, int] | None:
+    """Return ``(level, balance)`` once per warning level the balance falls to."""
     if not is_payg(profile):
-        return False
-    threshold = await get_low_balance_threshold(session)
-    if threshold <= 0:
-        return False
-    bal = await payg_available_balance(session, profile)
-    if bal > threshold:
-        if profile.billing_low_warned_at is not None:
-            profile.billing_low_warned_at = None
-            await session.commit()
-        return False
-    if profile.billing_low_warned_at is not None:
-        return False
-    profile.billing_low_warned_at = datetime.now(timezone.utc)
-    await session.commit()
-    return True
+        return None
+    balance = await payg_available_balance(session, profile)
+    level = await claim_low_balance_warning(session, profile, balance)
+    return None if level is None else (level, balance)
 
 
 async def run_billing_tick(session: AsyncSession) -> dict[str, int]:
@@ -998,45 +999,16 @@ async def run_billing_tick(session: AsyncSession) -> dict[str, int]:
                     await suspend_payg_reseller(session, profile, commit=True)
                 except Exception:
                     logger.exception("PAYG suspend failed reseller=%s", profile.user_id)
-            elif await maybe_warn_low_balance(session, profile):
-                try:
-                    await _notify_low_balance(session, profile)
-                except Exception:
-                    logger.debug("low balance notify failed", exc_info=True)
+            else:
+                warning = await maybe_warn_low_balance(session, profile)
+                if warning is not None:
+                    try:
+                        await notify_low_balance(session, profile, *warning)
+                    except Exception:
+                        logger.warning(
+                            "low balance notify failed reseller=%s", profile.user_id, exc_info=True
+                        )
         except Exception:
             stats["errors"] += 1
             logger.exception("billing tick failed reseller=%s", profile.user_id)
     return stats
-
-
-async def _notify_low_balance(session: AsyncSession, profile: ResellerProfile) -> None:
-    from app.db.models import BotUser
-    from app.services.formatting import format_toman
-
-    user = await session.get(BotUser, int(profile.user_id))
-    if not user or not user.telegram_id:
-        return
-    bal = format_toman(int(user.wallet_balance or 0))
-    text = (
-        "⚠️ موجودی کیف پول شما رو به اتمام است.\n"
-        f"مانده: <b>{bal}</b>\n"
-        "مصرف PAYG از همین کیف پول کسر می‌شود. لطفاً شارژ کنید."
-    )
-    try:
-        from app.bot import create_bot
-        from app.services.reseller_bots import open_notify_bot_for_reseller
-
-        shop_bot, owned = await open_notify_bot_for_reseller(session, int(profile.user_id))
-        bot = shop_bot
-        close = owned
-        if bot is None:
-            bot = create_bot()
-            close = True
-        try:
-            await bot.send_message(int(user.telegram_id), text, parse_mode="HTML")
-        finally:
-            if close and bot is not None:
-                await bot.session.close()
-    except Exception:
-        logger.debug("billing low-balance telegram failed", exc_info=True)
-
