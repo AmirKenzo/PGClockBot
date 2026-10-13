@@ -234,33 +234,16 @@ async def res_creds(
         await callback.answer("پروفایل نماینده یافت نشد", show_alert=True)
         return
     await callback.answer()
-    text = await format_reseller_access_card(session, profile)
-    # URL / renew buttons are allowed (not a shop-panel menu); nav via reply KB
-    rows: list[list[InlineKeyboardButton]] = []
-    if profile.bot_username:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=f"باز کردن @{profile.bot_username}",
-                    url=f"https://t.me/{profile.bot_username}",
-                )
-            ]
-        )
-    try:
-        from app.services.pg_admin_subscription import is_subscription_plan
+    from app.bot.nav_inline import reseller_access_card_keyboard
 
-        plan = getattr(profile, "plan", None)
-        if plan is not None and is_subscription_plan(plan):
-            rows.append(
-                [InlineKeyboardButton(text="🔄 تمدید سرویس", callback_data="res:renew")]
-            )
-    except Exception:
-        pass
+    text = await format_reseller_access_card(session, profile)
     if callback.message:
         await safe_edit_text(
             callback.message,
             text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None,
+            reply_markup=reseller_access_card_keyboard(
+                profile, await get_all_settings(session)
+            ),
         )
 
 
@@ -1498,7 +1481,7 @@ async def res_renew(
                 callback_data="res:renew:go",
             )
         ],
-        [InlineKeyboardButton(text="انصراف", callback_data="menu:home")],
+        [kb.back_button(None, "nv:res:home")],
     ]
     detail = format_renew_invoice_html(invoice, currency=get_settings().currency)
     exp = invoice.get("expires_at")
@@ -1604,7 +1587,7 @@ async def res_buy_gb(
                 )
             ]
         )
-    rows.append([InlineKeyboardButton(text="انصراف", callback_data="menu:home")])
+    rows.append([kb.back_button(None, "res:addons")])
     await callback.answer()
     if callback.message:
         await safe_edit_text(
@@ -1701,7 +1684,7 @@ async def res_buy_users(
                 )
             ]
         )
-    rows.append([InlineKeyboardButton(text="انصراف", callback_data="menu:home")])
+    rows.append([kb.back_button(None, "res:addons")])
     await callback.answer()
     if callback.message:
         await safe_edit_text(
@@ -1871,7 +1854,7 @@ async def res_addons(
         await callback.answer("بستهٔ اضافه فعالی تعریف نشده", show_alert=True)
         return
 
-    rows.append([InlineKeyboardButton(text="انصراف", callback_data="menu:home")])
+    rows.append([kb.back_button(None, "nv:res:home")])
     body = (
         "بستهٔ آماده از کاتالوگ، یا خرید واحدی (اگر پلن اجازه دهد).\n"
         "با خرید بستهٔ آماده فقط ظرفیت اضافه می‌شود و تاریخ انقضا عوض نمی‌شود."

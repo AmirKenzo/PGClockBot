@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import BaseFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -29,25 +30,50 @@ from app.services.redact import user_safe_error
 logger = logging.getLogger(__name__)
 router = Router(name="reply_nav")
 
+_RESELLER_HUB_BACK = "nv:res:home"
+
+
 class _SoftCallback:
     """Duck-typed CallbackQuery so admin handlers can edit a bot-owned message."""
 
-    def __init__(self, message: Message, data: str):
+    def __init__(self, message: Message, data: str, *, back_callback: str | None = None):
         self.id = "reply"
         self.from_user = message.from_user
         self.message = message
         self.data = data
         self.bot = message.bot
+        self._denial_markup = (
+            InlineKeyboardMarkup(inline_keyboard=[[kb.back_button(None, back_callback)]])
+            if back_callback
+            else None
+        )
 
     async def answer(self, *args, **kwargs):
         # Show denial / alert text on the ⏳ bubble (no-op answer would leave it stuck)
         text = args[0] if args else kwargs.get("text")
         if text:
             try:
-                await self.message.edit_text(str(text)[:500])
-            except Exception:
-                pass
+                await self.message.edit_text(
+                    str(text)[:500], reply_markup=self._denial_markup
+                )
+            except TelegramAPIError:
+                logger.debug("soft callback denial edit failed", exc_info=True)
         return True
+
+
+def _hub_back_markup() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[kb.back_button(None, _RESELLER_HUB_BACK)]]
+    )
+
+
+async def _live_bubble(message: Message) -> Message:
+    """Reuse the tapped panel when the tap came from an inline button; else a ⏳ bubble."""
+    from app.bot.nav_inline import is_bot_panel_message
+
+    if is_bot_panel_message(message):
+        return message
+    return await message.answer("⏳")
 
 class ReplyMenuTextFilter(BaseFilter):
     """Match known reply-menu / submenu labels (works even during FSM — clears it)."""
@@ -889,6 +915,7 @@ async def open_reseller_creds(
     session: AsyncSession,
     db_user: BotUser,
     *,
+    state: FSMContext | None = None,
     is_reseller_bot: bool = False,
     reseller_owner_id: int | None = None,
 ) -> None:
@@ -908,31 +935,16 @@ async def open_reseller_creds(
     if not profile or not profile.is_active:
         await message.answer("پروفایل نماینده یافت نشد.", reply_markup=main_kb)
         return
-    text = await format_reseller_access_card(session, profile)
-    rows: list[list[InlineKeyboardButton]] = []
-    if profile.bot_username:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=f"باز کردن @{profile.bot_username}",
-                    url=f"https://t.me/{profile.bot_username}",
-                )
-            ]
-        )
-    try:
-        from app.services.pg_admin_subscription import is_subscription_plan
+    from app.bot.nav_inline import present_nav_panel, reseller_access_card_keyboard
 
-        plan = getattr(profile, "plan", None)
-        if plan is not None and is_subscription_plan(plan):
-            rows.append(
-                [InlineKeyboardButton(text="🔄 تمدید سرویس", callback_data="res:renew")]
-            )
-    except Exception:
-        pass
-    await message.answer(
-        text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else main_kb,
+    ui = await get_all_settings(session)
+    await present_nav_panel(
+        message,
+        text=await format_reseller_access_card(session, profile),
+        inline=reseller_access_card_keyboard(profile, ui),
+        state=state,
     )
+
 
 async def open_pg_home(
     message: Message,
@@ -2353,6 +2365,7 @@ async def _soft_reseller(
                 message,
                 session,
                 db_user,
+                state=state,
                 is_reseller_bot=is_reseller_bot,
                 reseller_owner_id=reseller_owner_id,
             )
@@ -2422,8 +2435,8 @@ async def _soft_reseller(
         )
         return
     if action == "res_plan_add":
-        bubble = await message.answer("⏳")
-        cb = _SoftCallback(bubble, "res:plan:add")
+        bubble = await _live_bubble(message)
+        cb = _SoftCallback(bubble, "res:plan:add", back_callback=_RESELLER_HUB_BACK)
         try:
             await res_plans_h.res_plan_add(
                 cb,
@@ -2435,7 +2448,9 @@ async def _soft_reseller(
             )
         except Exception as e:
             try:
-                await bubble.edit_text(f"خطا: {user_safe_error(e)}")
+                await bubble.edit_text(
+                    f"خطا: {user_safe_error(e)}", reply_markup=_hub_back_markup()
+                )
             except Exception:
                 pass
         return
@@ -2478,8 +2493,8 @@ async def _soft_reseller(
                 f"<code>{url}</code>"
             )
             return
-        bubble = await message.answer("⏳")
-        cb = _SoftCallback(bubble, f"res:st:sec:{sec}")
+        bubble = await _live_bubble(message)
+        cb = _SoftCallback(bubble, f"res:st:sec:{sec}", back_callback=_RESELLER_HUB_BACK)
         try:
             await res_st_h.settings_section(
                 cb,
@@ -2490,7 +2505,9 @@ async def _soft_reseller(
             )
         except Exception as e:
             try:
-                await bubble.edit_text(f"خطا: {user_safe_error(e)}")
+                await bubble.edit_text(
+                    f"خطا: {user_safe_error(e)}", reply_markup=_hub_back_markup()
+                )
             except Exception:
                 pass
         return
@@ -2516,11 +2533,13 @@ async def _soft_reseller(
     # res_users handler name
     if fn_name == "res_users":
         fn_name = "res_users_list"
-    bubble = await message.answer("⏳")
-    cb = _SoftCallback(bubble, data)
+    bubble = await _live_bubble(message)
+    cb = _SoftCallback(bubble, data, back_callback=_RESELLER_HUB_BACK)
     fn = getattr(res_h, fn_name, None)
     if fn is None:
-        await bubble.edit_text("این بخش در دسترس نیست — از کیبورد نماینده استفاده کنید.")
+        await bubble.edit_text(
+            "این بخش در دسترس نیست.", reply_markup=_hub_back_markup()
+        )
         return
     try:
         await fn(

@@ -114,3 +114,4 @@ tests/test_web_list_inputs.py
 tests/test_plans_single_message.py
 tests/test_main_bot_reseller_hub.py
 tests/test_admin_settings_authorization.py
+tests/test_reseller_hub_in_place.py
