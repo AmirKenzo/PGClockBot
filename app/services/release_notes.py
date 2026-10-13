@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.29": [
+        "ربات اصلی: ورودی‌های نماینده به هاب اینلاین «پنل نماینده» منتقل شد (یک نقطهٔ ورود به‌جای چند دکمهٔ جدا)",
+        "ریستور: restore/pre-v0.3.29-v0.3.28",
+    ],
     "0.3.28": [
         "ربات: جستجوی تنظیمات یک غلط املایی (شباهت ≥۰٫۷۵) و ارقام فارسی/عربی–لاتین را تحمل می‌کند (#698)",
         "نماینده: بازگشت از هاب PasarGuard به خانهٔ نماینده (نه هاب مالک) — دیگر خطای دسترسی مالک نمی‌دهد (#702)",
