@@ -117,3 +117,4 @@ tests/test_admin_settings_authorization.py
 # Web read deadlines, outage gates, credential isolation and mutation outcomes.
 tests/test_panel_connection_resilience.py
 tests/test_panel_asset_cache.py
+tests/test_catalog_discounts.py

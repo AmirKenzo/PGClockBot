@@ -106,6 +106,13 @@ async def campaign_progress(session, campaign_id):
         CampaignRecipient.campaign_id == campaign_id).group_by(CampaignRecipient.status))).all())
 
 
+def campaign_send_delay(audience: str, *, requested: float) -> float:
+    """Price announcements leave a full second between sends, including adjacent campaigns."""
+    if requested == 0:
+        return 0
+    return max(1.0, requested) if audience == "catalog_discount" else requested
+
+
 async def process_campaign(session, campaign_id, bot, *, batch_size=20, delay=0.1):
     now, token = datetime.now(timezone.utc), secrets.token_hex(16)
     claim = await session.execute(update(TargetedCampaign).where(
@@ -118,6 +125,7 @@ async def process_campaign(session, campaign_id, bot, *, batch_size=20, delay=0.
     campaign = await session.get(TargetedCampaign, campaign_id)
     await session.refresh(campaign)
     shop_id, text = campaign.reseller_id, campaign.text
+    delay = campaign_send_delay(campaign.audience, requested=delay)
     # A send interrupted by process death has unknown delivery; never auto-send it twice.
     await session.execute(update(CampaignRecipient).where(
         CampaignRecipient.campaign_id == campaign_id, CampaignRecipient.status == "sending",
