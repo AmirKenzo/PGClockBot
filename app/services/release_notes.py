@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.30": [
+        "ربات: صفحه‌های پلن و کارت دسترسی با یک پیام کار می‌کنند (ویرایش درجا به‌جای پیام‌های روی‌هم)",
+        "ریستور: restore/pre-v0.3.30-v0.3.29",
+    ],
     "0.3.29": [
         "ربات اصلی: ورودی‌های نماینده به هاب اینلاین «پنل نماینده» منتقل شد (یک نقطهٔ ورود به‌جای چند دکمهٔ جدا)",
         "ریستور: restore/pre-v0.3.29-v0.3.28",
