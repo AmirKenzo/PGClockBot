@@ -91,7 +91,7 @@ def _rewards_redeem_keyboard(
     ]
     if include_back:
         rows.append(
-            [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="loy:home")]
+            [kb.back_button(None, "loy:home")]
         )
     if not rows:
         return None
@@ -114,7 +114,7 @@ def _hist_page_keyboard(
         rows.append(nav_btns)
     if include_back:
         rows.append(
-            [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="loy:home")]
+            [kb.back_button(None, "loy:home")]
         )
     if not rows:
         return None
@@ -322,9 +322,7 @@ async def open_loyalty_points_message(
             inline=InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
-                        InlineKeyboardButton(
-                            text="⬅️ بازگشت", callback_data="nv:loy:home"
-                        )
+                        kb.back_button(ui, "nv:loy:home")
                     ]
                 ]
             ),
@@ -334,7 +332,7 @@ async def open_loyalty_points_message(
     extras = _points_extras_keyboard()
     rows = list(extras.inline_keyboard)
     rows.append(
-        [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="nv:loy:home")]
+        [kb.back_button(ui, "nv:loy:home")]
     )
     await present_inline_only(
         message,
@@ -372,9 +370,7 @@ async def open_loyalty_rewards_message(
         redeem_kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(
-                        text="⬅️ بازگشت", callback_data="nv:loy:home"
-                    )
+                    kb.back_button(ui, "nv:loy:home")
                 ]
             ]
         )
@@ -455,9 +451,7 @@ async def open_loyalty_wheel_message(
             inline=InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
-                        InlineKeyboardButton(
-                            text="⬅️ بازگشت", callback_data="nv:loy:home"
-                        )
+                        kb.back_button(ui, "nv:loy:home")
                     ]
                 ]
             ),
@@ -467,7 +461,7 @@ async def open_loyalty_wheel_message(
     spin_kb = _wheel_spin_keyboard(can_spin=can_spin)
     rows = list(spin_kb.inline_keyboard)
     rows.append(
-        [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="nv:loy:home")]
+        [kb.back_button(ui, "nv:loy:home")]
     )
     await present_inline_only(
         message,
@@ -502,7 +496,7 @@ async def open_loyalty_history_message(
     if page_kb is not None:
         rows_kb.extend(page_kb.inline_keyboard)
     rows_kb.append(
-        [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="nv:loy:home")]
+        [kb.back_button(ui, "nv:loy:home")]
     )
     await present_inline_only(
         message,
@@ -711,7 +705,7 @@ def _staff_rules_markup(rules: list[PointsRule]) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔄 تازه‌سازی", callback_data="loyadm:rules")]
     )
     rows.append(
-        [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="nv:adm:loy")]
+        [kb.back_button(None, "nv:adm:loy")]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -733,7 +727,7 @@ def _staff_rewards_markup(rewards: list[LoyaltyReward]) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔄 تازه‌سازی", callback_data="loyadm:rewards")]
     )
     rows.append(
-        [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="nv:adm:loy")]
+        [kb.back_button(None, "nv:adm:loy")]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -907,7 +901,7 @@ def _staff_settings_markup(*, enabled: bool) -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton(text="🔄 تازه‌سازی", callback_data="loyadm:settings")],
-            [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="nv:adm:loy")],
+            [kb.back_button(None, "nv:adm:loy")],
         ]
     )
 
@@ -1058,7 +1052,7 @@ async def referral_stats_cb(callback: CallbackQuery, session: AsyncSession, db_u
     )
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="ref:home")],
+            [kb.back_button(None, "ref:home")],
         ]
     )
     if callback.message:
@@ -1239,10 +1233,7 @@ async def _do_redeem(
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
-                        InlineKeyboardButton(
-                            text="⬅️ بازگشت به جوایز",
-                            callback_data="loy:rewards",
-                        )
+                        kb.back_button(None, "loy:rewards")
                     ],
                 ]
             ),
@@ -1382,7 +1373,7 @@ async def loyalty_discounts(callback: CallbackQuery, session: AsyncSession, db_u
             format_message("🏷 تخفیف‌های من", body),
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="loy:home")],
+                    [kb.back_button(None, "loy:home")],
                 ]
             ),
         )

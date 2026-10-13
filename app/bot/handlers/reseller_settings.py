@@ -312,7 +312,7 @@ async def _render_menu_order(
                 )
             ]
         )
-    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data=back)])
+    rows.append([kb.back_button(None, back)])
     if callback.message:
         await safe_edit_text(
             callback.message,
@@ -469,7 +469,7 @@ async def _render_section(callback: CallbackQuery, session: AsyncSession, sec_id
             rows.append(
                 [InlineKeyboardButton(text="➕ پشتیبان جدید", callback_data="res:st:sup:add")]
             )
-            rows.append([InlineKeyboardButton(text="⬅️ تنظیمات", callback_data="res:st:hub")])
+            rows.append([kb.back_button(None, "res:st:hub")])
             body = "پشتیبان فعال نیست." if not contacts else "برای حذف روی مورد بزنید."
             if callback.message:
                 await safe_edit_text(
@@ -484,7 +484,7 @@ async def _render_section(callback: CallbackQuery, session: AsyncSession, sec_id
             uname = f"@{profile.bot_username}" if profile and profile.bot_username else "—"
             rows = [
                 [InlineKeyboardButton(text="🔄 تغییر توکن ربات", callback_data="res:st:bot:token")],
-                [InlineKeyboardButton(text="⬅️ تنظیمات", callback_data="res:st:hub")],
+                [kb.back_button(None, "res:st:hub")],
             ]
             text = (
                 "🤖 <b>ربات فروشگاه</b>\n\n"
@@ -511,7 +511,7 @@ async def _render_section(callback: CallbackQuery, session: AsyncSession, sec_id
                     )
                 ]
             )
-        rows.append([InlineKeyboardButton(text="⬅️ تنظیمات", callback_data="res:st:hub")])
+        rows.append([kb.back_button(None, "res:st:hub")])
         if callback.message:
             await safe_edit_text(
                 callback.message,
@@ -538,7 +538,7 @@ async def _render_notify(callback: CallbackQuery, session: AsyncSession, reselle
         rows.append(
             [InlineKeyboardButton(text="— اعلانی برای دسترسی شما نیست —", callback_data="res:st:hub")]
         )
-    rows.append([InlineKeyboardButton(text="⬅️ تنظیمات", callback_data="res:st:hub")])
+    rows.append([kb.back_button(None, "res:st:hub")])
     if callback.message:
         await safe_edit_text(
             callback.message,
@@ -574,7 +574,7 @@ async def _render_sub(
                         callback_data="res:st:menu:layout",
                     )
                 ],
-                [InlineKeyboardButton(text="⬅️ بازگشت", callback_data=f"res:st:sec:{sec_id}")],
+                [kb.back_button(None, f"res:st:sec:{sec_id}")],
             ]
             if callback.message:
                 await safe_edit_text(
@@ -613,7 +613,7 @@ async def _render_sub(
                     ]
                 )
         rows.append(
-            [InlineKeyboardButton(text="⬅️ بازگشت", callback_data=f"res:st:sec:{sec_id}")]
+            [kb.back_button(None, f"res:st:sec:{sec_id}")]
         )
         if callback.message:
             await safe_edit_text(

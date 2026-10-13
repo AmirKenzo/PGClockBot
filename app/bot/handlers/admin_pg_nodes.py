@@ -138,7 +138,7 @@ def _nodes_list_kb(items: list) -> InlineKeyboardMarkup:
                 )
             ]
         )
-    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="adm:pg")])
+    rows.append([kb.back_button(None, "adm:pg")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -156,7 +156,7 @@ def _node_detail_kb(nid: int) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="🗑 حذف", callback_data=f"adm:pg:ndelask:{nid}"),
             ],
-            [InlineKeyboardButton(text="⬅️ لیست نودها", callback_data="adm:pg:nodes")],
+            [kb.back_button(None, "adm:pg:nodes")],
         ]
     )
 

@@ -49,7 +49,7 @@ async def svc_cancel(callback: CallbackQuery, session: AsyncSession, db_user: Bo
         buttons.append([InlineKeyboardButton(text="ثبت درخواست و دلیل لغو", callback_data=f"svc:cancelnew:{service_id}")])
     else:
         buttons.append([InlineKeyboardButton(text="به‌روزرسانی درخواست", callback_data=f"svc:cancel:{service_id}")])
-    buttons.append([InlineKeyboardButton(text="بازگشت به سرویس", callback_data=f"svc:view:{service_id}")])
+    buttons.append([kb.back_button(None, f"svc:view:{service_id}")])
     if callback.message:
         await safe_edit_text(callback.message, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     await callback.answer()
@@ -165,7 +165,7 @@ async def _show_automation(callback, session, db_user, service_id):
             InlineKeyboardButton(text="انتخاب پلن" if action == "renew" else "انتخاب بسته", callback_data=f"svc:autopick:{service_id}:{action}"),
         ])
     lines.append("\nبا روشن کردن هر گزینه، خرید تکرارشونده از کیف پول را فعال می‌کنید. موجودی ناکافی باعث خرید نمی‌شود؛ پس از شارژ دوباره تلاش می‌شود.")
-    buttons.append([InlineKeyboardButton(text="بازگشت به سرویس", callback_data=f"svc:view:{service_id}")])
+    buttons.append([kb.back_button(None, f"svc:view:{service_id}")])
     if callback.message:
         await safe_edit_text(callback.message, format_message("⚙️ تنظیمات خودکار سرویس", "\n".join(lines)), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
@@ -203,7 +203,7 @@ async def svc_auto_pick(callback: CallbackQuery, session: AsyncSession, db_user:
         callback_data=f"svc:autoset:{service_id}:{action}:{p.id}",
         icon_custom_emoji_id=kb.category_icon_for(p, categories),
     )] for p in choices]
-    buttons.append([InlineKeyboardButton(text="بازگشت به تنظیمات", callback_data=f"svc:auto:{service_id}")])
+    buttons.append([kb.back_button(None, f"svc:auto:{service_id}")])
     await callback.answer()
     if callback.message:
         await safe_edit_text(callback.message, format_message(
@@ -360,7 +360,7 @@ async def svc_reseller_view(
         rows.append(
             [InlineKeyboardButton(text="📦 بسته افزونه", callback_data="res:addons")]
         )
-    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="svc:list")])
+    rows.append([kb.back_button(None, "svc:list")])
     if callback.message:
         await safe_edit_text(
             callback.message,
@@ -986,10 +986,7 @@ def _register_services_cancel_codes() -> None:
             )
         buttons.append(
             [
-                InlineKeyboardButton(
-                    text="بازگشت به سرویس",
-                    callback_data=f"svc:view:{service_id}",
-                )
+                kb.back_button(None, f"svc:view:{service_id}")
             ]
         )
         await present_inline_only(
