@@ -864,6 +864,38 @@ async def nv_adm_plans_aud(
         is_reseller_bot=is_reseller_bot,
     )
 
+@router.callback_query(F.data.startswith("nv:adm:plans:list:"))
+async def nv_adm_plans_list(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    db_user: BotUser,
+    state: FSMContext,
+    is_reseller_bot: bool = False,
+):
+    """Open the plan list by editing the audience hub panel."""
+    from app.bot.handlers.admin_plans import (
+        send_resellers_plans_overview,
+        send_users_plans_overview,
+    )
+    from app.bot.handlers.reply_nav import _deny_unless_owner
+
+    aud = (callback.data or "").split(":")[-1]
+    if aud not in {"users", "resellers"}:
+        await callback.answer("نامعتبر", show_alert=True)
+        return
+    await callback.answer()
+    if not callback.message:
+        return
+    if not await _deny_unless_owner(
+        callback.message, session, db_user, is_reseller_bot=is_reseller_bot
+    ):
+        return
+    await state.update_data(_adm_plans_aud=aud, _adm_plans_kind=None)
+    if aud == "users":
+        await send_users_plans_overview(callback.message, session, state)
+    else:
+        await send_resellers_plans_overview(callback.message, session, state)
+
 @router.callback_query(F.data.startswith("nv:adm:ra:"))
 async def nv_adm_ra(
     callback: CallbackQuery,

@@ -894,12 +894,10 @@ async def open_reseller_creds(
             )
     except Exception:
         pass
-    await message.answer(text, reply_markup=main_kb)
-    if rows:
-        await message.answer(
-            "لینک ربات / تمدید:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-        )
+    await message.answer(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else main_kb,
+    )
 
 async def open_pg_home(
     message: Message,
@@ -1107,7 +1105,7 @@ async def present_admin_plans_audience(
     audience: str,
     is_reseller_bot: bool = False,
 ) -> None:
-    """Wave E: plans audience list — inline actions + overview bubble.
+    """Wave E: plans audience hub — one panel; the list opens in place via «مشاهده پلن‌ها».
 
     Owner-gated (same Owner Principal gate as ``_OWNER_ONLY_REPLY_ACTIONS``).
     """
@@ -1123,7 +1121,7 @@ async def present_admin_plans_audience(
     title = "👥 <b>پلن‌های کاربران</b>" if audience == "users" else "🤝 <b>پلن‌های نمایندگان</b>"
     body = (
         f"{title}\n"
-        + "پلن‌ها در پیام بعد؛ افزودن/کاتالوگ از دکمه‌های زیر."
+        + "فهرست پلن‌ها را با «مشاهده پلن‌ها» ببینید؛ افزودن/کاتالوگ از دکمه‌های زیر."
     )
     if state is not None:
         await nav.set_nav_level(state, nav.NAV_ADMIN_PLANS_KIND, push=True)
@@ -1133,14 +1131,6 @@ async def present_admin_plans_audience(
         inline=admin_plans_kind_hub_keyboard(audience, ui),
         state=state,
     )
-    if audience == "resellers":
-        from app.bot.handlers.admin_plans import send_resellers_plans_overview
-
-        await send_resellers_plans_overview(message, session)
-    else:
-        from app.bot.handlers.admin_plans import send_users_plans_overview
-
-        await send_users_plans_overview(message, session)
 
 async def open_admin_users_hub(
     message: Message,

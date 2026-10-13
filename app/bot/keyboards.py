@@ -1490,6 +1490,8 @@ def admin_home(ui: dict | None = None) -> InlineKeyboardMarkup:
 def admin_users_plans_overview_keyboard(
     plans: list,
     ui: dict | None = None,
+    *,
+    back_callback: str = "adm:plans",
 ) -> InlineKeyboardMarkup:
     """All user plan rows inline — mirrors web /plans user table (add via reply keyboard)."""
     from app.services.button_styles import resolve_custom_plan_button_style
@@ -1571,11 +1573,7 @@ def admin_users_plans_overview_keyboard(
         ]
     )
     rows = rows[:-3] + chunk_buttons([row[0] for row in rows[-3:]], cols=2)
-    rows.append(
-        [
-            back_button(ui, "adm:plans")
-        ]
-    )
+    rows.append([back_button(ui, back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1584,6 +1582,8 @@ def admin_resellers_plans_overview_keyboard(
     payg_plans: list,
     ui: dict | None = None,
     addon_plans: list | None = None,
+    *,
+    back_callback: str = "adm:plans",
 ) -> InlineKeyboardMarkup:
     """All reseller subscription + addon packs — mirrors web /plans sections."""
     fixed_style = _style(ui, "plan_res_fixed", fallback="primary")
@@ -1646,11 +1646,7 @@ def admin_resellers_plans_overview_keyboard(
                 )
             ]
         )
-    rows.append(
-        [
-            back_button(ui, "adm:plans")
-        ]
-    )
+    rows.append([back_button(ui, back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
