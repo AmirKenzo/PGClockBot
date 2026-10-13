@@ -46,6 +46,7 @@ BTN_MAIN_MENU: list[Field] = [
     ("btn_services", "سرویس‌ها", "text"),
     ("btn_wallet", "کیف پول", "text"),
     ("btn_support", "پشتیبانی", "text"),
+    ("btn_restart", "شروع مجدد", "text"),
     ("btn_loyalty", "باشگاه مشتریان", "text"),
     ("btn_reseller_apply", "درخواست نمایندگی", "text"),
     ("btn_wholesale", "فروش عمده", "text"),

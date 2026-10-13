@@ -141,6 +141,14 @@ def _reply_markup(
     )
 
 
+def _restart_footer(ui: dict | None) -> list[tuple[str, str]]:
+    """Own-row «شروع مجدد» at the bottom of level-0 menus (admin-toggleable)."""
+    if not on(_t(ui, "show_restart_button")):
+        return []
+    label = (_t(ui, "btn_restart") or "").strip()
+    return [(REPLY_ACTION_HOME, label)] if label else []
+
+
 def _reply_user_entries(
     role: str,
     *,
@@ -594,7 +602,7 @@ def reseller_hub_main_keyboard(
         (REPLY_ACTION_RESELLER, _t(ui, "btn_reseller") or "🤝 پنل نماینده"),
         (REPLY_ACTION_RES_PREVIEW, _t(ui, "btn_adm_preview")),
     ]
-    rows = _pack_reply_rows(entries, ui, footer=[])
+    rows = _pack_reply_rows(entries, ui, footer=_restart_footer(ui))
     return _reply_markup(
         rows or [[_kb(_home_label(ui), action=REPLY_ACTION_HOME, ui=ui)]],
         placeholder="از منوی پایین انتخاب کنید…",
@@ -740,8 +748,9 @@ def main_reply_keyboard(
             _t(ui, "btn_adm_exit_preview") or "🛠 بازگشت به پنل ادمین"
         ).strip()
         entries.append((preview_exit_action, exit_label))
-    # No Home row on level-0 (already at home).
-    rows = _pack_reply_rows(entries, ui, footer=[])
+    rows = _pack_reply_rows(
+        entries, ui, footer=[] if as_user else _restart_footer(ui)
+    )
     return _reply_markup(rows, placeholder="از منوی پایین انتخاب کنید…")
 
 
@@ -1001,6 +1010,9 @@ def reply_action_map(
         back_label: REPLY_ACTION_BACK,
         BTN_BACK: REPLY_ACTION_BACK,
     }
+    restart_label = (_t(ui, "btn_restart") or "").strip()
+    if restart_label:
+        mapping[restart_label] = REPLY_ACTION_HOME
     # Legacy aliases
     mapping[BTN_RESTART] = REPLY_ACTION_HOME
     mapping["شروع مجدد"] = REPLY_ACTION_HOME
