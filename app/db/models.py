@@ -592,6 +592,8 @@ class ResellerProfile(Base):
     billing_low_warned_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Deepest low-balance level already announced (toman); NULL while above every level.
+    billing_low_warned_level: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # PAYG empty-balance suspension (admin + users cut until topup)
     billing_suspended_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
