@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings, normalize_pg_base_url
 from app.db.models import BotUser, ResellerPlan, ResellerProfile, Role
+from app.services.billing import require_positive_payg_rate
 from app.services.pasarguard import get_pg
 from app.services.pg_quota import limit_snapshot_cards, load_staff_limit_snapshot
 from app.services.resellers import (
@@ -1251,6 +1252,11 @@ def register_reseller_pages(app, *, render, require_admin, get_db, require_staff
         if billing_mode not in {"fixed", "payg"}:
             billing_mode = "fixed"
         price_per_gb = _parse_price_per_gb(form) if billing_mode == "payg" else 0
+        if billing_mode == "payg":
+            try:
+                require_positive_payg_rate(price_per_gb)
+            except ValueError as e:
+                return RedirectResponse(f"/plans?err={_q(str(e))}#reseller-plans", status_code=303)
         pg_group_ids = _parse_pg_group_ids(form)
         if not pg_group_ids:
             return RedirectResponse(
@@ -1578,7 +1584,14 @@ def register_reseller_pages(app, *, render, require_admin, get_db, require_staff
                 status_code=303,
             )
         if billing_mode == "payg":
-            plan.price_per_gb = _parse_price_per_gb(form)
+            try:
+                new_rate = require_positive_payg_rate(_parse_price_per_gb(form))
+            except ValueError as e:
+                return RedirectResponse(
+                    f"/resellers/plans/{plan_id}/edit?err={_q(str(e))}",
+                    status_code=303,
+                )
+            plan.price_per_gb = new_rate
             plan.pg_group_ids = pg_group_ids
             plan.allow_buy_extra = False
             plan.extra_gb_price = 0

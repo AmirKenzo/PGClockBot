@@ -47,6 +47,23 @@ class BillingError(Exception):
         super().__init__(message)
 
 
+class PaygRateError(ValueError):
+    """A PAYG plan has no positive per-GB rate."""
+
+
+PAYG_RATE_REQUIRED_MESSAGE = (
+    "نرخ هر گیگ پلن PAYG باید بیشتر از صفر باشد؛ با نرخ صفر مصرف نماینده رایگان می‌شود"
+)
+
+
+def require_positive_payg_rate(price_per_gb: int) -> int:
+    """Return the rate, or raise ValueError when a PAYG plan would bill nothing."""
+    rate = int(price_per_gb or 0)
+    if rate <= 0:
+        raise PaygRateError(PAYG_RATE_REQUIRED_MESSAGE)
+    return rate
+
+
 # ---------------------------------------------------------------------------
 # Traffic source (pluggable — prefer lifetime_used_traffic)
 # ---------------------------------------------------------------------------
@@ -896,15 +913,12 @@ async def tick_reseller_usage(
     ctx = rate_ctx or rate_context_for_profile(profile)
     rate = await resolve_price_per_gb(session, ctx)
     if rate <= 0:
+        # Hold the watermark: usage stays unbilled and is charged once a rate exists.
         logger.warning(
-            "billing rate=0 reseller=%s plan_id=%s — usage not charged; fix PAYG plan price",
+            "billing rate=0 reseller=%s plan_id=%s — usage held, not charged; fix PAYG plan price",
             profile.user_id,
             getattr(profile, "plan_id", None),
         )
-        # Still advance watermark so a later rate fix does not back-bill huge delta
-        profile.billing_watermark_bytes = int(used)
-        if commit:
-            await session.commit()
         return None
 
     key = f"usage:{int(profile.user_id)}:{watermark}:{used}"
