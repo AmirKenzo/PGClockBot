@@ -35,6 +35,7 @@ FEATURE_PERMS: list[tuple[str, str]] = [
     ("demo_users", "مدیریت کاربران دمو"),
     ("shop_settings", "تنظیمات ربات فروشگاه"),
     ("campaigns", "کمپین‌های هدفمند فروشگاه"),
+    ("catalog_discounts", "تخفیف و کاهش قیمت فروشگاه"),
     ("loyalty", "باشگاه مشتریان"),
 ]
 

@@ -24,6 +24,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.catalog_pricing import annotate_prices, displayed_quote, quote_product, sale_price
 from app.config import get_settings
 from app.db.models import BotUser, Plan, ResellerProfile, UserService
 from app.services.db_safe import rollback_quiet
@@ -304,6 +305,7 @@ async def _user_shop_payload(session: AsyncSession, user: BotUser) -> dict:
         .order_by(Plan.sort_order, Plan.id)
     )
     plans = list((await session.execute(plans_q)).scalars().all())
+    await annotate_prices(session, plans, shop_id=None)
     trial = (
         await session.execute(
             select(Plan)
@@ -341,7 +343,7 @@ async def _user_shop_payload(session: AsyncSession, user: BotUser) -> dict:
             {
                 "id": p.id,
                 "name": p.name,
-                "price": int(p.price or 0),
+                **displayed_quote(p).payload(),
                 "days": p.duration_days,
                 "gb": p.data_limit_gb,
                 "is_trial": bool(p.is_trial),
@@ -624,7 +626,7 @@ def register_miniapp_pages(app: FastAPI, *, render, get_db) -> None:
                         "kind": p.kind,
                         "amount_label": amount_label(p),
                         "description": p.description or "",
-                        "price": int(p.price or 0),
+                        **displayed_quote(p).payload(),
                     }
                     for p in packs
                 ]
@@ -668,11 +670,12 @@ def register_miniapp_pages(app: FastAPI, *, render, get_db) -> None:
         if not pack_matches_service_category(pack, svc_cat):
             raise HTTPException(400, "این بسته برای دستهٔ پلن این سرویس نیست")
         await session.refresh(user)
-        if int(pack.price or 0) > int(user.wallet_balance or 0):
+        quote = await quote_product(session, pack, shop_id=None)
+        if quote.price > int(user.wallet_balance or 0):
             raise HTTPException(400, "موجودی کیف پول کافی نیست")
         try:
             order = await create_addon_order(
-                session, user_id=user.id, service=svc, pack=pack
+                session, user_id=user.id, service=svc, pack=pack, expected_price=body.get("price")
             )
             order = await pay_with_wallet(session, order, user)
             await session.refresh(user)
@@ -734,10 +737,10 @@ def register_miniapp_pages(app: FastAPI, *, render, get_db) -> None:
         if not plan or not plan.is_active or plan.owner_reseller_id is not None:
             raise HTTPException(400, "پلن یافت نشد")
         await session.refresh(user)
-        if int(plan.price or 0) > int(user.wallet_balance or 0):
+        if sale_price(plan) > int(user.wallet_balance or 0):
             raise HTTPException(400, "موجودی کیف پول کافی نیست")
         try:
-            order = await create_order(session, user_id=user.id, plan_id=plan_id)
+            order = await create_order(session, user_id=user.id, plan_id=plan_id, expected_price=body.get("price"))
             await session.refresh(user)
             order = await pay_with_wallet(session, order, user)
             await session.refresh(user)
@@ -842,16 +845,16 @@ def register_miniapp_pages(app: FastAPI, *, render, get_db) -> None:
         ):
             raise HTTPException(400, "پلن تمدید نامعتبر است")
         await session.refresh(user)
-        if int(plan.price or 0) > int(user.wallet_balance or 0):
+        if sale_price(plan) > int(user.wallet_balance or 0):
             raise HTTPException(400, "موجودی کیف پول کافی نیست")
         try:
             from app.services.service_renewals import renewal_terms
 
             quote = body.get("preview")
-            if not isinstance(quote, dict) or quote.get("terms") != renewal_terms(plan) or quote.get("price") != plan.price or not quote.get("request_key"):
+            if not isinstance(quote, dict) or quote.get("terms") != renewal_terms(plan) or quote.get("price") != sale_price(plan) or not quote.get("request_key"):
                 raise ValueError("پیش‌نمایش تمدید معتبر نیست یا پلن تغییر کرده؛ دوباره پلن را انتخاب کنید")
             order = await renew_service_with_plan(
-                session, user_id=user.id, service=svc, plan=plan, request_key=quote["request_key"],
+                session, user_id=user.id, service=svc, plan=plan, request_key=quote["request_key"], expected_price=quote["price"],
             )
             await session.refresh(user)
             order = await pay_with_wallet(session, order, user)
