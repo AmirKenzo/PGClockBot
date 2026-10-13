@@ -854,6 +854,31 @@ def reseller_manage_hub_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def reseller_access_card_keyboard(
+    profile, ui: dict | None = None
+) -> InlineKeyboardMarkup:
+    """Links under the access card plus «بازگشت» to the reseller hub."""
+    from app.services.pg_admin_subscription import is_subscription_plan
+
+    rows: list[list[InlineKeyboardButton]] = []
+    if profile.bot_username:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"باز کردن @{profile.bot_username}",
+                    url=f"https://t.me/{profile.bot_username}",
+                )
+            ]
+        )
+    plan = getattr(profile, "plan", None)
+    if plan is not None and is_subscription_plan(plan):
+        rows.append(
+            [InlineKeyboardButton(text="🔄 تمدید سرویس", callback_data="res:renew")]
+        )
+    rows.append(_hub_back_row(ui, callback_data="nv:res:home"))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def reseller_main_bot_hub_keyboard(
     profile,
     ui: dict | None = None,

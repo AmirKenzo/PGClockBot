@@ -114,6 +114,7 @@ tests/test_web_list_inputs.py
 tests/test_plans_single_message.py
 tests/test_main_bot_reseller_hub.py
 tests/test_admin_settings_authorization.py
+tests/test_reseller_hub_in_place.py
 # Web read deadlines, outage gates, credential isolation and mutation outcomes.
 tests/test_panel_connection_resilience.py
 tests/test_panel_asset_cache.py
