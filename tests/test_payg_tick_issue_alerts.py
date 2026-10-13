@@ -121,13 +121,29 @@ class TickIssueTests(unittest.IsolatedAsyncioTestCase):
     async def test_unreachable_panel_is_reported_and_recovery_rearms(self) -> None:
         async with self.Session() as session:
             profile = await self._payg_reseller(session, 8103, pg_username="adm8103")
-            await self._tick(session, FakePanel({"adm8103": ("unreachable", None)}))
+            await self._payg_reseller(session, 8106, pg_username="adm8106")
+            healthy_peer = ("ok", {"lifetime_used_traffic": 0})
+            await self._tick(
+                session, FakePanel({"adm8103": ("unreachable", None), "adm8106": healthy_peer})
+            )
             self.assertEqual(profile.billing_tick_issue, TickIssue.PANEL_UNAVAILABLE.value)
-            healthy = FakePanel({"adm8103": ("ok", {"lifetime_used_traffic": 0})})
+            healthy = FakePanel({"adm8103": ("ok", {"lifetime_used_traffic": 0}), "adm8106": healthy_peer})
             await self._tick(session, healthy)
             self.assertIsNone(profile.billing_tick_issue)
-            await self._tick(session, FakePanel({"adm8103": ("unreachable", None)}))
+            await self._tick(
+                session, FakePanel({"adm8103": ("unreachable", None), "adm8106": healthy_peer})
+            )
         self.assertEqual(len(self.sent), 2)
+
+    async def test_global_panel_outage_does_not_alert_resellers(self) -> None:
+        async with self.Session() as session:
+            first = await self._payg_reseller(session, 8107, pg_username="adm8107")
+            second = await self._payg_reseller(session, 8108, pg_username="adm8108")
+            down = ("unreachable", None)
+            await self._tick(session, FakePanel({"adm8107": down, "adm8108": down}))
+            self.assertIsNone(first.billing_tick_issue)
+            self.assertIsNone(second.billing_tick_issue)
+        self.assertEqual(self.sent, [])
 
     async def test_missing_admin_and_missing_traffic_field_are_distinct_issues(self) -> None:
         async with self.Session() as session:
