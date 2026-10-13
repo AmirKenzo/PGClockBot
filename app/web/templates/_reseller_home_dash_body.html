@@ -1,6 +1,7 @@
 {# Reseller dash body — single root #home-dash for /home/body swap. #}
 {% from "macros.html" import page_title %}
 <div class="home-dash" id="home-dash">
+{% if request is defined and request.url.path == '/home/body' %}{% include "_pg_connection_notice.html" %}{% endif %}
 {% if dashboard_degraded %}
 <div class="flash warn home-update-banner">
   <div class="home-update-copy">
