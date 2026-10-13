@@ -653,6 +653,8 @@ async def make_reseller(
     plan_id: int | None = None,
     billing_mode: str | None = None,
     issue_setup_token: bool = False,
+    confirm_mode_change: bool = False,
+    watermark_bytes: int | None = None,
 ) -> ResellerProfile:
     user.role = Role.RESELLER.value
     result = await session.execute(
@@ -668,10 +670,24 @@ async def make_reseller(
     if mode not in {"fixed", "payg"}:
         mode = None
 
+    mode_change = None
     if profile:
         profile.can_approve_receipts = approve
         if mode:
-            profile.billing_mode = mode
+            # billing_mode imports billing, which imports this module's dependents.
+            from app.services.billing_mode import (
+                ModeChange,
+                apply_mode_fields,
+                assert_mode_change_confirmed,
+                normalize_mode,
+            )
+
+            change = ModeChange(previous=normalize_mode(profile.billing_mode), new=mode)
+            if change.changed:
+                if profile.is_active:
+                    assert_mode_change_confirmed(change.previous, mode, confirmed=confirm_mode_change)
+                apply_mode_fields(profile, mode, watermark_bytes=watermark_bytes)
+                mode_change = change
         if pg_admin_username is not None:
             profile.pg_admin_username = pg_admin_username
         if pg_admin_password_enc is not None:
@@ -691,6 +707,7 @@ async def make_reseller(
             user_id=user.id,
             can_approve_receipts=approve,
             billing_mode=mode or "fixed",
+            billing_watermark_bytes=int(watermark_bytes or 0),
             pg_admin_username=pg_admin_username,
             pg_admin_password_enc=pg_admin_password_enc,
             pg_role_id=pg_role_id,
@@ -725,13 +742,16 @@ async def make_reseller(
 
     # Fresh install: map this shop to its depth-1 Principal now (idempotent).
     await bind_reseller_profile_principal(session, profile)
-    is_payg_profile = str(profile.billing_mode or "").lower() == "payg"
+    final_mode = str(profile.billing_mode or "fixed").lower()
     await session.commit()
-    if is_payg_profile:
-        # billing -> billing_alerts -> reseller_access imports this module.
-        from app.services.billing import ensure_billing_enabled
+    if final_mode == "payg" or mode_change is not None:
+        from app.services.billing_mode import ModeChange, finish_mode_change
 
-        await ensure_billing_enabled(session)
+        await finish_mode_change(
+            session,
+            profile,
+            mode_change or ModeChange(previous=final_mode, new=final_mode),
+        )
     await session.refresh(profile)
     return profile
 
@@ -828,6 +848,9 @@ async def create_application(
     from app.services.billing import BillingError, assert_payg_purchase_wallet
 
     if reseller_plan_mode_of(plan) == "payg":
+        from app.services.billing import require_positive_payg_rate
+
+        require_positive_payg_rate(int(getattr(plan, "price_per_gb", 0) or 0))
         try:
             await assert_payg_purchase_wallet(session, int(user.wallet_balance or 0))
         except BillingError as e:
@@ -998,6 +1021,10 @@ async def provision_reseller(
     plan_billing = str(getattr(plan, "billing_mode", None) or "fixed").strip().lower()
     if plan_billing not in {"fixed", "payg"}:
         plan_billing = "fixed"
+    if plan_billing == "payg":
+        from app.services.billing import require_positive_payg_rate
+
+        require_positive_payg_rate(int(getattr(plan, "price_per_gb", 0) or 0))
     perms = normalize_feature_perms(
         web_permissions
         or bot_permissions
@@ -1674,6 +1701,7 @@ async def provision_existing_pg_admin(
     note: str = "",
     web_permissions: str | None = None,
     share_pg_panel_url: bool | None = None,
+    confirm_mode_change: bool = False,
 ) -> tuple[ResellerProfile | None, str | None, str | None]:
     """Grant web + shop access to an existing PG admin using a reseller plan.
 
@@ -1701,6 +1729,13 @@ async def provision_existing_pg_admin(
     plan = await session.get(ResellerPlan, int(plan_id))
     if not plan or not plan.is_active:
         return None, None, "پلن نمایندگی معتبر نیست — ابتدا یک پلن فعال بسازید"
+    if reseller_plan_mode_of(plan) == "payg":
+        from app.services.billing import PaygRateError, require_positive_payg_rate
+
+        try:
+            require_positive_payg_rate(int(getattr(plan, "price_per_gb", 0) or 0))
+        except PaygRateError as exc:
+            return None, None, str(exc)
 
     cleaned, uerr = validate_web_username(web_username, lowercase=True)
     if uerr:
@@ -1739,6 +1774,24 @@ async def provision_existing_pg_admin(
         conflict = await conflict_message_for_reseller_link(session, pg_u)
         if conflict:
             return None, None, conflict
+
+    from app.services.billing_mode import (
+        BillingModeChangeError,
+        assert_mode_change_confirmed,
+        normalize_mode,
+        starting_watermark,
+    )
+
+    plan_mode = reseller_plan_mode_of(plan)
+    watermark_bytes: int | None = None
+    try:
+        current_mode = normalize_mode(getattr(current, "billing_mode", None))
+        if current is not None and current.is_active:
+            assert_mode_change_confirmed(current_mode, plan_mode, confirmed=confirm_mode_change)
+        if plan_mode == "payg" and (current is None or current_mode != "payg"):
+            watermark_bytes = await starting_watermark(pg_u)
+    except BillingModeChangeError as exc:
+        return None, None, str(exc)
 
     # Unified login: web username must match the Pasarguard admin username.
     if cleaned != pg_u:
@@ -1812,8 +1865,10 @@ async def provision_existing_pg_admin(
         web_permissions=perms,
         bot_permissions=perms,
         plan_id=int(plan.id),
-        billing_mode=str(getattr(plan, "billing_mode", None) or "fixed"),
+        billing_mode=plan_mode,
         issue_setup_token=True,
+        confirm_mode_change=confirm_mode_change,
+        watermark_bytes=watermark_bytes,
     )
     if note:
         # Store operator note on profile via unused field if present; else ignore

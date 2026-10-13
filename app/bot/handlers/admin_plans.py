@@ -18,6 +18,7 @@ from app.bot.auth import require_bot_owner_handler
 from app.bot.handlers.admin_settings import CUSTOM_PRICE
 from app.config import get_settings
 from app.db.models import BotUser, Plan, ResellerPlan
+from app.services.billing import PaygRateError, require_positive_payg_rate
 from app.services.orders import parse_wholesale_tiers, wholesale_description
 from app.services.pasarguard import get_pg
 from app.services.resellers import (
@@ -2080,7 +2081,10 @@ async def resplan_edit_save(
         elif field == "price":
             plan.price = max(0, parse_bot_int(text))
         elif field == "rate":
-            plan.price_per_gb = max(0, parse_bot_int(text))
+            new_rate = max(0, parse_bot_int(text))
+            if is_payg:
+                require_positive_payg_rate(new_rate)
+            plan.price_per_gb = new_rate
         elif field == "desc":
             plan.description = text or None
         elif field == "addon_gb":
@@ -2106,6 +2110,9 @@ async def resplan_edit_save(
         else:
             await state.clear()
             return
+    except PaygRateError as exc:
+        await message.answer(str(exc))
+        return
     except ValueError:
         await message.answer("عدد معتبر بفرستید.")
         return
@@ -2296,7 +2303,10 @@ async def resplan_rate_gb(
         await _answer_plans_cancel(message, state, session)
         return
     try:
-        rate = max(0, parse_bot_int(message.text))
+        rate = require_positive_payg_rate(parse_bot_int(message.text))
+    except PaygRateError as exc:
+        await message.answer(str(exc))
+        return
     except ValueError:
         await message.answer("عدد معتبر بفرستید.")
         return
@@ -2700,6 +2710,8 @@ async def _save_reseller_plan(
     if not role_id:
         raise ValueError("pg_role_id required")
     is_payg = mode == "payg"
+    if is_payg:
+        require_positive_payg_rate(int(price_per_gb or data.get("res_plan_rate_gb") or 0))
     plan = ResellerPlan(
         name=data.get("res_plan_name") or "پلن نماینده",
         price=int(data.get("res_plan_price") or 0),

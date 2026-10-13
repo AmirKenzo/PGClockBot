@@ -2312,6 +2312,7 @@ def register_pg_pages(
             password=web_password,
             plan_id=int(plan_raw),
             note=note,
+            confirm_mode_change=bool(form.get("confirm_billing_mode_change")),
         )
         if err:
             return RedirectResponse(f"/pg/admins?err={_q(err)}", status_code=303)

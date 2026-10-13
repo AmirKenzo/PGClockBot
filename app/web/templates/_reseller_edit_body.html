@@ -51,6 +51,12 @@
             <option value="payg" {% if profile.billing_mode == 'payg' %}selected{% endif %}>PAYG</option>
           </select>
         </label>
+        <label class="form-field">
+          <span class="ui-check">
+            <input type="checkbox" name="confirm_billing_mode_change" value="1" />
+            <span>تأیید تغییر نوع پرداخت: مصرف PAYG از مصرف فعلی ادمین شروع می‌شود و مسدودی PAYG در بازگشت به «ثابت» برداشته می‌شود</span>
+          </span>
+        </label>
       </div>
       <div>
         <label class="form-field">یوزرنیم پاسارگارد
