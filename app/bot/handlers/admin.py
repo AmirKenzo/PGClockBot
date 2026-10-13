@@ -4273,7 +4273,9 @@ async def adm_resapp_list(callback: CallbackQuery, session: AsyncSession, db_use
         if callback.message:
             await callback.message.edit_text(
                 "درخواست معلقی نیست.",
-                reply_markup=None,
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[[kb.back_button(None, "nv:adm:resellers")]]
+                ),
             )
         return
     status_fa = {

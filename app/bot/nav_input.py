@@ -14,6 +14,7 @@ from typing import Any
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
+from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.state import State
 from aiogram.types import (
     CallbackQuery,
@@ -23,6 +24,7 @@ from aiogram.types import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot.nav_inline import NAV_PANEL_CHAT_KEY, NAV_PANEL_MSG_KEY, panel_is_still_live
 from app.db.models import BotUser
 
 logger = logging.getLogger(__name__)
@@ -190,6 +192,28 @@ async def remember_prompt(
     await state.update_data(**payload)
 
 
+async def delete_user_message(message: Message) -> None:
+    """Remove the operator's typed reply so the edited panel stays the only bubble."""
+    try:
+        await message.delete()
+    except TelegramAPIError:
+        logger.debug("could not delete typed input message", exc_info=True)
+
+
+async def adopt_prompt_as_panel(message: Message, state: FSMContext) -> None:
+    """Let the next panel edit the prompt bubble when the reply came right after it."""
+    data = await state.get_data()
+    prompt_id = data.get(PROMPT_MSG_ID)
+    chat_id = data.get(PROMPT_CHAT_ID)
+    if not prompt_id or not chat_id or int(chat_id) != int(message.chat.id):
+        return
+    if not panel_is_still_live(message, int(prompt_id)):
+        return
+    await state.update_data(
+        **{NAV_PANEL_CHAT_KEY: int(chat_id), NAV_PANEL_MSG_KEY: int(prompt_id)}
+    )
+
+
 async def try_legacy_cancel(
     message: Message,
     state: FSMContext,
@@ -209,6 +233,7 @@ async def try_legacy_cancel(
     entry = CANCEL_REGISTRY.get(str(code)) if code else None
     if entry is None:
         return False
+    await adopt_prompt_as_panel(message, state)
     try:
         await state.set_state(None)
     except Exception:
@@ -223,6 +248,7 @@ async def try_legacy_cancel(
         await entry.reopen(message, session, db_user, state, **kw)
     except TypeError:
         await entry.reopen(message, session, db_user, state)
+    await delete_user_message(message)
     return True
 
 
