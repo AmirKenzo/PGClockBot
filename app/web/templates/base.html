@@ -10,6 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="{{ pwa_name|default('MrClockBot') }}" />
+  <script src="/static/panel_widget_request.js?v={{ panel_widget_cache_key|default(app_version) }}"{% if csp_nonce %} nonce="{{ csp_nonce }}"{% endif %}></script>
   {% if csrf_token %}<meta name="csrf-token" content="{{ csrf_token }}" />{% endif %}
   <title>{% block title %}پنل مدیریت{% endblock %} · {{ pwa_name|default('MrClockBot') }}</title>
   <script{% if csp_nonce %} nonce="{{ csp_nonce }}"{% endif %}>
@@ -236,6 +237,9 @@
             <span>باشگاه مشتریان</span>
           </a>
           {% endif %}
+          {% if is_owner or 'catalog_discounts' in perms %}
+          <a href="/catalog-discounts" class="nav-item nav-item-bot {% if path.startswith('/catalog-discounts') %}active{% endif %}"><span>تخفیف و قیمت‌گذاری</span></a>
+          {% endif %}
           {% if is_owner or 'campaigns' in perms %}
           <a href="/campaigns" class="nav-item nav-item-bot {% if path.startswith('/campaigns') %}active{% endif %}"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l5 4V6L7 10H4zM17 8v8M21 6v12"/></svg><span>کمپین هدفمند</span></a>
           {% endif %}
@@ -376,6 +380,7 @@
         {% set _catalog_modal_open = open_categories|default(false) %}
         {% if flash_ok and not open_edit and not _domain_modal_open and not _principal_modal_open and not _catalog_modal_open %}<div class="flash ok">{{ flash_ok }}</div>{% endif %}
         {% if flash_err and not open_edit and not _domain_modal_open and not _principal_modal_open and not _catalog_modal_open %}<div class="flash err">{{ flash_err }}</div>{% endif %}
+        {% include "_pg_connection_notice.html" %}
         {% block content %}{% endblock %}
       </div>
       <footer class="site-footer">
@@ -465,7 +470,7 @@
     </div>
   </div>
   <script src="/static/money-inputs.js?v={{ app_version }}&grouping=1"{% if csp_nonce %} nonce="{{ csp_nonce }}"{% endif %}></script>
-  <script src="/static/panel.js?v={{ app_version }}"{% if csp_nonce %} nonce="{{ csp_nonce }}"{% endif %}></script>
+  <script src="/static/panel.js?v={{ panel_script_cache_key|default(app_version) }}"{% if csp_nonce %} nonce="{{ csp_nonce }}"{% endif %}></script>
   <script src="/static/list-inputs.js?v={{ app_version }}"{% if csp_nonce %} nonce="{{ csp_nonce }}"{% endif %}></script>
   <script type="application/json" id="template-variable-specs"{% if csp_nonce %} nonce="{{ csp_nonce }}"{% endif %}>{{ template_variable_specs(daily_report_actor|default('shop' if shop_mode|default(false) else 'owner', true))|tojson }}</script>
   <script src="/static/template-variables.js?v={{ app_version }}"{% if csp_nonce %} nonce="{{ csp_nonce }}"{% endif %}></script>

@@ -11,6 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.catalog_pricing import annotate_prices, assert_expected_price, quote_product
 from app.db.models import (
     BotUser,
     Order,
@@ -223,7 +224,9 @@ async def list_shop_packs(
             q = q.where(ServiceAddonPack.category_id.is_(None))
         else:
             q = q.where(ServiceAddonPack.category_id == int(category_id))
-    return list((await session.execute(q)).scalars().all())
+    packs = list((await session.execute(q)).scalars().all())
+    await annotate_prices(session, packs, shop_id=rid)
+    return packs
 
 
 async def list_packs_for_service(
@@ -413,6 +416,7 @@ async def create_addon_order(
     service: UserService,
     pack: ServiceAddonPack,
     commit: bool = True,
+    expected_price: int | None = None,
 ) -> Order:
     """Create a pending addon order. Price is snapshotted from the pack."""
     from app.services.orders import _shop_reseller_id
@@ -459,10 +463,12 @@ async def create_addon_order(
         if pack.kind == KIND_DURATION and service.quota_expire_at is None:
             raise ValueError("این سرویس زمان نامحدود دارد — بسته زمان قابل خرید نیست")
 
+    quote = await quote_product(session, pack, shop_id=shop_rid)
+    assert_expected_price(quote, expected_price)
     order = Order(
         user_id=user_id,
         plan_id=None,
-        amount=int(pack.price),
+        amount=quote.price,
         status=OrderStatus.PENDING.value,
         note=format_addon_note(
             int(pack.id),

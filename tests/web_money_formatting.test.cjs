@@ -57,6 +57,7 @@ const context = vm.createContext({
   window: {addEventListener() {}}, location: {hash: ""},
   document: {getElementById: () => ({}), querySelectorAll: () => []},
 });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "../app/web/static/catalog_price.js"), "utf8"), context);
 vm.runInContext(source.replace(/  load\(\);\s*\}\)\(\);\s*$/, `
   globalThis.testUI = {money, plansHtml, activityHtml, setCurrency: (value) => {currency = value;}};
 })();`), context);

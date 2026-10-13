@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.catalog_pricing import PriceTarget, active_discounts, annotate_prices, assert_expected_price, displayed_quote, quote_price, quote_product, sale_price
 from app.db.models import (
     BotUser,
     ChargeCode,
@@ -363,6 +364,7 @@ async def list_active_plans(
     plans = list(result.scalars().all())
     if not include_trial:
         plans = [p for p in plans if not p.is_trial]
+    await annotate_prices(session, plans, shop_id=rid)
     return plans
 
 
@@ -383,6 +385,7 @@ async def get_catalog_plan(session: AsyncSession, plan_id: int) -> Optional[Plan
             return None
     elif plan.owner_reseller_id is not None:
         return None
+    await quote_product(session, plan, shop_id=shop_rid)
     return plan
 
 
@@ -514,10 +517,12 @@ async def create_order(
     discount_code: str | None = None,
     trial_phone_hash: str | None = None,
     trial_telegram_id: int | None = None,
+    expected_price: int | None = None,
 ) -> Order:
     plan = await get_catalog_plan(session, plan_id)
     if not plan or not plan.is_active:
         raise ValueError("پلن یافت نشد")
+    assert_expected_price(displayed_quote(plan), expected_price)
     shop_rid = _shop_reseller_id()
     # Ignore sticky attribution from caller — shop bot context wins.
     _ = reseller_id
@@ -553,18 +558,18 @@ async def create_order(
         user_id=user_id,
         plan_id=plan.id,
         reseller_id=shop_rid,
-        amount=int(plan.price),
+        amount=sale_price(plan),
         discount_amount=0,
         status=OrderStatus.PENDING.value,
     )
     session.add(order)
     await session.flush()
     try:
-        discount, used_code = await _reserve_discount_code(session, discount_code, plan.price, order=order)
+        discount, used_code = await _reserve_discount_code(session, discount_code, sale_price(plan), order=order)
     except ValueError:
         await session.rollback()
         raise
-    order.amount = max(0, plan.price - discount)
+    order.amount = max(0, sale_price(plan) - discount)
     order.discount_amount = discount
     order.discount_code = used_code
     if plan.is_trial:
@@ -694,6 +699,7 @@ async def create_custom_order(
     session.add(plan)
     await session.flush()
 
+    amount = quote_price(PriceTarget(amount, kind="custom"), await active_discounts(session, shop_id=shop_rid)).price
     order = Order(
         user_id=user_id,
         plan_id=plan.id,
@@ -850,7 +856,7 @@ async def create_wholesale_order(
     tiers = parse_wholesale_tiers(ui.get("wholesale_tiers"))
     pct = wholesale_tier_percent(qty, tiers)
     amount, discount = calc_wholesale_price(
-        unit_price=plan.price, quantity=qty, percent=pct
+        unit_price=sale_price(plan), quantity=qty, percent=pct
     )
     shop_rid = _shop_reseller_id()
     _ = reseller_id
@@ -2228,6 +2234,7 @@ async def renew_service_with_plan(
     plan: Plan,
     commit: bool = True,
     request_key: str | None = None,
+    expected_price: int | None = None,
 ) -> Order:
     """Create a pending renewal order. Caller shows pay_methods (or uses pay_with_wallet)."""
     from app.services.service_renewals import validate_renewal_selection
@@ -2245,10 +2252,12 @@ async def renew_service_with_plan(
         session, user_id=user_id, service=service, plan=plan, shop_id=shop_rid,
     )
 
+    quote = await quote_product(session, plan, shop_id=shop_rid)
+    assert_expected_price(quote, expected_price)
     order = Order(
         user_id=user_id,
         plan_id=plan.id,
-        amount=plan.price,
+        amount=quote.price,
         status=OrderStatus.PENDING.value,
         note=f"renew:{service.id}",
         service_id=service.id,

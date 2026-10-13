@@ -1,5 +1,6 @@
 {# PG overview widgets — single root #pg-dash for /pg/body swap. #}
 <div id="pg-dash" class="pg-dash">
+{% if request is defined and request.url.path == '/pg/body' %}{% include "_pg_connection_notice.html" %}{% endif %}
 {% if not staff.pg_is_owner %}
   {% set ov = reseller_overview or {} %}
   {% if ov.ready %}

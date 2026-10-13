@@ -759,8 +759,11 @@ async def run_service_automation_tick(bot: Bot) -> None:
 async def run_targeted_campaigns_tick(bot: Bot) -> None:
     from app.db.models import TargetedCampaign
     from app.services.campaigns import process_campaign
+    from app.services.catalog_discounts import pause_expired_announcements
     from app.services.reseller_bots import open_notify_bot_for_reseller
 
+    async with SessionLocal() as session:
+        await pause_expired_announcements(session)
     last_id = 0
     while True:
         async with SessionLocal() as session:

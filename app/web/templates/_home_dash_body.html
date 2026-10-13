@@ -6,6 +6,7 @@
 {% set show_pg_nodes = show_pg_nodes if show_pg_nodes is defined else ('pg_nodes' in (staff.get('pg_permissions') or [])) %}
 
 <div class="home-dash" id="home-dash">
+  {% if request is defined and request.url.path == '/home/body' %}{% include "_pg_connection_notice.html" %}{% endif %}
   {% if dashboard_degraded %}
   <div class="flash warn home-update-banner">
     <div class="home-update-copy">

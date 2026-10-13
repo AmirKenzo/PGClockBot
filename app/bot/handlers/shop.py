@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import logging
 
 from aiogram import F, Router
@@ -9,6 +10,8 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.users import current_shop_reseller_id
+from app.services.catalog_pricing import PriceTarget, active_discounts, displayed_quote, price_html, quote_price, sale_price
 from app.bot import keyboards as kb
 from app.bot.handlers.purchase_contact import prompt_purchase_contact_if_needed
 from app.bot.tg_utils import safe_edit_text
@@ -768,6 +771,7 @@ async def custom_confirm(callback: CallbackQuery, session: AsyncSession, state: 
     amount = calc_custom_plan_price(
         gb=gb, days=days, price_per_gb=price_gb, price_per_day=price_day
     )
+    quote = quote_price(PriceTarget(amount, kind="custom"), await active_discounts(session, shop_id=current_shop_reseller_id()))
     await callback.answer()
     from app.services.formatting import info_block, kv_line
 
@@ -775,7 +779,7 @@ async def custom_confirm(callback: CallbackQuery, session: AsyncSession, state: 
         [
             kv_line("📦", "حجم", f"<b>{gb}</b> گیگ"),
             kv_line("⏱", "مدت", f"<b>{days}</b> روز"),
-            kv_line("💰", "قیمت", f"<b>{format_toman(amount, get_settings().currency)}</b>"),
+            kv_line("💰", "قیمت", price_html(quote, get_settings().currency)),
             f"<i>({price_gb:,} ت/گیگ + {price_day:,} ت/روز)</i>".replace(",", "٬"),
         ]
     )
@@ -831,6 +835,7 @@ async def custom_buy(callback: CallbackQuery, session: AsyncSession, db_user: Bo
     expected = calc_custom_plan_price(
         gb=gb, days=days, price_per_gb=price_gb, price_per_day=price_day
     )
+    expected = quote_price(PriceTarget(expected, kind="custom"), await active_discounts(session, shop_id=current_shop_reseller_id())).price
     if expected > 0 and not kb.any_checkout_method_enabled(ui):
         await callback.answer("هیچ روش پرداختی فعال نیست", show_alert=True)
         return
@@ -940,7 +945,7 @@ async def wholesale_pick_plan(callback: CallbackQuery, session: AsyncSession, st
     text = format_message(
         "📦 فروش عمده — تعداد",
         f"پلن: <b>{plan.name}</b>\n"
-        f"قیمت واحد: <b>{format_toman(plan.price, get_settings().currency)}</b>\n\n"
+        f"قیمت واحد: <b>{format_toman(sale_price(plan), get_settings().currency)}</b>\n\n"
         f"{wholesale_description(ui)}\n\n"
         f"تعداد درخواستی را انتخاب کنید ({mn} تا {mx}):\n"
         f"فعلی: <b>{mn}</b> عدد",
@@ -969,7 +974,7 @@ async def wholesale_qty_back(callback: CallbackQuery, session: AsyncSession, sta
     text = format_message(
         "📦 فروش عمده — تعداد",
         f"پلن: <b>{plan.name}</b>\n"
-        f"قیمت واحد: <b>{format_toman(plan.price, get_settings().currency)}</b>\n\n"
+        f"قیمت واحد: <b>{format_toman(sale_price(plan), get_settings().currency)}</b>\n\n"
         f"{wholesale_description(ui)}\n\n"
         f"تعداد درخواستی را انتخاب کنید ({mn} تا {mx}):\n"
         f"فعلی: <b>{qty}</b> عدد",
@@ -1004,13 +1009,13 @@ async def wholesale_qty_step(callback: CallbackQuery, session: AsyncSession, sta
     tiers = parse_wholesale_tiers(ui.get("wholesale_tiers"))
     pct = wholesale_tier_percent(qty, tiers)
     payable, discount = calc_wholesale_price(
-        unit_price=plan.price, quantity=qty, percent=pct
+        unit_price=sale_price(plan), quantity=qty, percent=pct
     )
     disc_line = f"\nتخفیف فعلی: <b>{pct}٪</b> (−{format_toman(discount, get_settings().currency)})" if pct else ""
     text = format_message(
         "📦 فروش عمده — تعداد",
         f"پلن: <b>{plan.name}</b>\n"
-        f"قیمت واحد: <b>{format_toman(plan.price, get_settings().currency)}</b>\n\n"
+        f"قیمت واحد: <b>{format_toman(sale_price(plan), get_settings().currency)}</b>\n\n"
         f"{wholesale_description(ui)}\n\n"
         f"فعلی: <b>{qty}</b> عدد{disc_line}\n"
         f"جمع: <b>{format_toman(payable, get_settings().currency)}</b>",
@@ -1087,7 +1092,7 @@ async def wholesale_qty_entered(
     tiers = parse_wholesale_tiers(ui.get("wholesale_tiers"))
     pct = wholesale_tier_percent(qty, tiers)
     payable, discount = calc_wholesale_price(
-        unit_price=plan.price, quantity=qty, percent=pct
+        unit_price=sale_price(plan), quantity=qty, percent=pct
     )
     disc_line = f"\nتخفیف: <b>{pct}٪</b> (−{format_toman(discount, get_settings().currency)})" if pct else ""
     text = format_message(
@@ -1128,7 +1133,7 @@ async def wholesale_confirm(callback: CallbackQuery, session: AsyncSession, stat
     tiers = parse_wholesale_tiers(ui.get("wholesale_tiers"))
     pct = wholesale_tier_percent(qty, tiers)
     payable, discount = calc_wholesale_price(
-        unit_price=plan.price, quantity=qty, percent=pct
+        unit_price=sale_price(plan), quantity=qty, percent=pct
     )
     await callback.answer()
     limit = f"{plan.data_limit_gb:g} گیگ" if plan.data_limit_gb is not None else "نامحدود"
@@ -1144,7 +1149,7 @@ async def wholesale_confirm(callback: CallbackQuery, session: AsyncSession, stat
         f"{kv_line('📦', 'تعداد', f'<b>{qty}</b>')}\n"
         f"{kv_line('📅', 'مدت هر سرویس', format_plan_duration_days(plan.duration_days))}\n"
         f"{kv_line('📶', 'حجم هر سرویس', limit)}\n"
-        f"{kv_line('💰', 'قیمت واحد', format_toman(plan.price, get_settings().currency))}"
+        f"{kv_line('💰', 'قیمت واحد', format_toman(sale_price(plan), get_settings().currency))}"
         f"{disc_block}\n"
         f"{kv_line('💳', 'مبلغ قابل پرداخت', f'<b>{format_toman(payable, get_settings().currency)}</b>')}",
     )
@@ -1236,13 +1241,13 @@ async def shop_plan(callback: CallbackQuery, session: AsyncSession, db_user: Bot
 
     body = info_block(
         [
-            plan.description or "",
+            html.escape(plan.description or ""),
             kv_line("⏱", "مدت", f"<b>{format_plan_duration_days(plan.duration_days)}</b>"),
             kv_line("📦", "حجم", f"<b>{limit}</b>"),
-            kv_line("💰", "قیمت", f"<b>{format_toman(plan.price, get_settings().currency)}</b>"),
+            kv_line("💰", "قیمت", price_html(displayed_quote(plan), get_settings().currency)),
         ]
     )
-    text = format_message(f"💎 {plan.name}", body)
+    text = format_message(f"💎 {html.escape(plan.name)}", body)
     if callback.message:
         await safe_edit_text(callback.message, text, reply_markup=kb.plan_actions(plan.id, ui))
 
@@ -1347,7 +1352,7 @@ async def shop_buy(callback: CallbackQuery, session: AsyncSession, db_user: BotU
         return
     if not plan.is_trial and await prompt_purchase_contact_if_needed(callback, session, db_user, state, ui):
         return
-    if plan.price > 0 and not kb.any_checkout_method_enabled(ui):
+    if sale_price(plan) > 0 and not kb.any_checkout_method_enabled(ui):
         await callback.answer("هیچ روش پرداختی فعال نیست", show_alert=True)
         return
 
@@ -2452,7 +2457,7 @@ def _register_shop_cancel_codes() -> None:
         tiers = parse_wholesale_tiers(ui.get("wholesale_tiers"))
         pct = wholesale_tier_percent(qty, tiers)
         payable, discount = calc_wholesale_price(
-            unit_price=plan.price, quantity=qty, percent=pct
+            unit_price=sale_price(plan), quantity=qty, percent=pct
         )
         disc_line = (
             f"\nتخفیف فعلی: <b>{pct}٪</b> (−{format_toman(discount, get_settings().currency)})"
@@ -2462,7 +2467,7 @@ def _register_shop_cancel_codes() -> None:
         text = format_message(
             "📦 فروش عمده — تعداد",
             f"پلن: <b>{plan.name}</b>\n"
-            f"قیمت واحد: <b>{format_toman(plan.price, get_settings().currency)}</b>\n\n"
+            f"قیمت واحد: <b>{format_toman(sale_price(plan), get_settings().currency)}</b>\n\n"
             f"{wholesale_description(ui)}\n\n"
             f"فعلی: <b>{qty}</b> عدد{disc_line}\n"
             f"جمع: <b>{format_toman(payable, get_settings().currency)}</b>",
