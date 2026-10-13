@@ -18,7 +18,7 @@ async def reopen_admin_plans(
 ) -> None:
     from app.bot.handlers.admin_plans import _answer_plans_cancel
 
-    await _answer_plans_cancel(message, state, session)
+    await _answer_plans_cancel(message, state, session, db_user)
 
 
 async def reopen_admin_users(
@@ -360,8 +360,10 @@ async def reopen_reseller_user_msg(
     state: FSMContext,
     **_kw,
 ) -> None:
+    from app.bot.nav_inline import present_nav_panel
+
     await state.clear()
-    await message.answer("لغو شد.")
+    await present_nav_panel(message, text="لغو شد.", inline=None, state=state)
 
 
 async def reopen_loyalty_staff(
@@ -387,7 +389,9 @@ async def reopen_loyalty_staff(
     )
     await state.clear()
     if scope_info is None:
-        await message.answer("لغو شد.")
+        from app.bot.nav_inline import present_nav_panel
+
+        await present_nav_panel(message, text="لغو شد.", inline=None, state=state)
         return
     scope, can_tiers = scope_info
     await _staff_loyalty_answer(
@@ -412,31 +416,35 @@ async def reopen_reseller_cap_adjust(
 ) -> None:
     from app.bot import keyboards as kb
     from app.bot.nav_chrome import heal_main_reply
+    from app.bot.nav_inline import is_bot_panel_message, present_nav_panel
 
     data = await state.get_data()
     user_id = int(data.get("capadj_uid") or 0)
     await state.set_state(None)
-    await heal_main_reply(
-        message,
-        session,
-        db_user,
-        text="لغو شد.",
-        is_reseller_bot=False,
-        reseller_owner_id=None,
-    )
-    if user_id:
-        adj_key = f"capadj:{user_id}"
-        stored = data.get(adj_key) if isinstance(data.get(adj_key), dict) else {}
-        await message.answer(
-            f"⏱ <b>تغییر ظرفیت نماینده #{user_id}</b>\n\n"
-            f"روز: <b>{int(stored.get('days') or 0)}</b> · "
-            f"گیگ: <b>{int(stored.get('gb') or 0)}</b>",
-            reply_markup=kb.admin_reseller_capacity_adjust_keyboard(
-                user_id,
-                days=int(stored.get("days") or 0),
-                gb=int(stored.get("gb") or 0),
-            ),
+    if not is_bot_panel_message(message):
+        await heal_main_reply(
+            message,
+            session,
+            db_user,
+            text="لغو شد.",
+            is_reseller_bot=False,
+            reseller_owner_id=None,
         )
+    if not user_id:
+        return
+    adj_key = f"capadj:{user_id}"
+    stored = data.get(adj_key) if isinstance(data.get(adj_key), dict) else {}
+    days = int(stored.get("days") or 0)
+    gb = int(stored.get("gb") or 0)
+    await present_nav_panel(
+        message,
+        text=(
+            f"⏱ <b>تغییر ظرفیت نماینده #{user_id}</b>\n\n"
+            f"روز: <b>{days}</b> · گیگ: <b>{gb}</b>"
+        ),
+        inline=kb.admin_reseller_capacity_adjust_keyboard(user_id, days=days, gb=gb),
+        state=state,
+    )
 
 
 def register_staff_cancel_codes() -> None:
