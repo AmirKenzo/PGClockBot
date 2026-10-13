@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.23": [
+        "ربات: همهٔ دکمه‌های بازگشت (به‌جز انصراف و صفحه‌بندی) از back_button استفاده می‌کنند — لیبل/آیکون/استایل از btn_back یکسان است",
+        "callback_data عوض نشده؛ همان مرحلهٔ قبلی درجا باز می‌شود",
+        "ریستور: restore/pre-v0.3.23-v0.3.22",
+    ],
     "0.3.22": [
         "ربات: جستجوی تنظیمات ادمین (adm:st:find) روی برچسب فیلد و عنوان زیربخش؛ نتیجه همان پیام را به زیربخش مربوط باز می‌کند",
         "بخش «منو» به «ظاهر و دکمه‌ها» تغییر نام داد و همهٔ برچسب‌های btn_* قابل ویرایش (به‌جز لیبل هاب ادمین) از همان‌جا در دسترس است",
