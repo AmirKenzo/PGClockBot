@@ -1967,15 +1967,22 @@ textarea[aria-invalid="true"] {
   min-width: 0;
 }
 .template-variable-token {
+  appearance: none;
+  min-height: 0;
   max-width: 100%;
+  margin: 0;
   padding: 3px 10px;
-  border: 1px solid;
+  border: 1px solid var(--border);
   border-radius: 999px;
+  background: var(--card);
+  color: var(--foreground);
+  font-family: monospace;
   font-size: 12px;
   font-weight: 500;
   line-height: 1.5;
   overflow-wrap: anywhere;
   unicode-bidi: isolate;
+  cursor: pointer;
 }
 .template-variable-token.is-valid {
   color: var(--ok-fg);
@@ -1986,6 +1993,8 @@ textarea[aria-invalid="true"] {
   color: var(--destructive-fg);
   border-color: color-mix(in srgb, var(--destructive) 40%, transparent);
   background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  cursor: not-allowed;
+  opacity: 1;
 }
 .template-variable-error {
   display: block;
