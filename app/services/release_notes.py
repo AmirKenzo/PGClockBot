@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.35": [
+        "ربات: ردیف «شروع مجدد» روی کیبورد پایین منوی اصلی (قابل ویرایش/خاموش از تنظیمات btn_restart و show_restart_button) (#721)",
+        "ریستور: restore/pre-v0.3.35-v0.3.34",
+    ],
     "0.3.34": [
         "نماینده: صفحات هاب (بسته‌ها، تمدید، کارت دسترسی، تنظیمات) همان پیام را ویرایش می‌کنند؛ بازگشت یک سطح به هاب (نه خانه)؛ کارت دسترسی دکمهٔ بازگشت دارد (#718)",
         "ریستور: restore/pre-v0.3.34-v0.3.33",

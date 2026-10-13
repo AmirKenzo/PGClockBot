@@ -2447,7 +2447,7 @@ def is_home_text(text: str | None, ui: dict | None = None) -> bool:
     if not t:
         return False
     home = _home_label(ui)
-    if t == home:
+    if t == home or t == (_t(ui, "btn_restart") or "").strip():
         return True
     return t in {BTN_RESTART, "شروع مجدد", "restart", "🏠 منوی اصلی"} or t.endswith(
         "شروع مجدد"
