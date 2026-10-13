@@ -116,6 +116,7 @@ def create_dispatcher() -> Dispatcher:
         reseller_reps,
         reseller_settings,
         shop,
+        stale_menu,
         start,
         terms,
         support,
@@ -155,6 +156,7 @@ def create_dispatcher() -> Dispatcher:
     dp.include_router(admin_pg_nodes.router)
     dp.include_router(admin_plans.router)
     dp.include_router(admin.router)
+    dp.include_router(stale_menu.router)
 
     block = _BlockPlatformAdminOnResellerBot()
     owner_gate = _RequireBotOwnerPrincipal()
