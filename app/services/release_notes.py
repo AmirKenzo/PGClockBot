@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.40": [
+        "PAYG: خرید/اعطای پلن، billing_enabled را روشن می‌کند؛ هشدار کمبود موجودی در ۱۰۰٬۰۰۰ و ۵۰٬۰۰۰ تومان به نماینده و ادمین مالک (#731)",
+        "مایگریشن 0048 (billing_low_warned_level)",
+        "ریستور: restore/pre-v0.3.40-v0.3.39",
+    ],
     "0.3.39": [
         "ربات: دکمهٔ «شروع مجدد» آیکون پریمیوم ذخیره‌شده در btn_restart را نشان می‌دهد (دیگر از btn_menu_home خوانده نمی‌شود) (#729)",
         "ریستور: restore/pre-v0.3.39-v0.3.38",
