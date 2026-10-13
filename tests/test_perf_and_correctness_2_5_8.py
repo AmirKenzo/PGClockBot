@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.db.models import OrderStatus, PaymentMethod
+from app.db.models import OrderStatus, PaymentMethod, Plan
 
 
 class ShopOrderAttributionTests(unittest.IsolatedAsyncioTestCase):
@@ -64,9 +64,10 @@ class ShopOrderAttributionTests(unittest.IsolatedAsyncioTestCase):
     async def test_get_catalog_plan_allows_own_shop(self):
         from app.services.orders import get_catalog_plan
 
-        plan = SimpleNamespace(id=3, owner_reseller_id=42)
+        plan = Plan(id=3, owner_reseller_id=42, price=5000, category_id=None, is_trial=False)
         session = AsyncMock()
         session.get = AsyncMock(return_value=plan)
+        session.scalars = AsyncMock(return_value=SimpleNamespace(all=lambda: []))
         with patch(
             "app.services.users.current_shop_reseller_id",
             return_value=42,
