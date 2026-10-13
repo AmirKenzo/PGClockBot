@@ -261,7 +261,8 @@ def register_home_pages(app, *, render, require_admin, require_staff, get_db):
     ):
         from urllib.parse import quote
 
-        from app.services.inbox_dismissals import upsert_dismissal
+        from app.services.inbox_dismissals import alert_counts, upsert_dismissal
+        from app.services.panel_inbox import build_inbox_context
 
         form = await request.form()
         alert_key = str(form.get("alert_key") or "").strip()
@@ -273,12 +274,14 @@ def register_home_pages(app, *, render, require_admin, require_staff, get_db):
             str(form.get("return_to") or "/inbox"), default="/inbox"
         )
         try:
+            ctx = await build_inbox_context(session, request, staff)
             await upsert_dismissal(
                 session,
                 staff=staff,
                 alert_key=alert_key,
                 mode=mode,
                 entity_id=entity_id,
+                seen_count=alert_counts(ctx).get(alert_key, 0),
             )
         except ValueError as e:
             return RedirectResponse(

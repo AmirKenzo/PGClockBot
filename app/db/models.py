@@ -1280,6 +1280,7 @@ class PanelInboxDismissal(Base):
     alert_key: Mapped[str] = mapped_column(String(64))
     entity_id: Mapped[str] = mapped_column(String(64), default="")
     mode: Mapped[str] = mapped_column(String(16))  # 24h | forever
+    seen_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     dismissed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
