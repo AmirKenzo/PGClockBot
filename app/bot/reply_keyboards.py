@@ -141,12 +141,12 @@ def _reply_markup(
     )
 
 
-def _restart_footer(ui: dict | None) -> list[tuple[str, str]]:
+def _restart_footer(ui: dict | None) -> list[tuple[str, str, str]]:
     """Own-row «شروع مجدد» at the bottom of level-0 menus (admin-toggleable)."""
     if not on(_t(ui, "show_restart_button")):
         return []
     label = (_t(ui, "btn_restart") or "").strip()
-    return [(REPLY_ACTION_HOME, label)] if label else []
+    return [(REPLY_ACTION_HOME, label, "btn_restart")] if label else []
 
 
 def _reply_user_entries(
@@ -654,8 +654,8 @@ def _pack_reply_rows(
     entries: list[tuple[str, str]],
     ui: dict | None,
     *,
-    footer: list[str | tuple[str, str]] | None = None,
-    footer_row: list[str | tuple[str, str]] | None = None,
+    footer: list[str | tuple[str, ...]] | None = None,
+    footer_row: list[str | tuple[str, ...]] | None = None,
 ) -> list[list[KeyboardButton]]:
     layout = _menu_layout(ui)
     items = [(a, t) for a, t in entries if (t or "").strip()]
@@ -672,15 +672,17 @@ def _pack_reply_rows(
             if btn is not None:
                 rows.append([btn])
 
-    def _footer_btns(items_in: list[str | tuple[str, str]]) -> list[KeyboardButton]:
+    def _footer_btns(items_in: list[str | tuple[str, ...]]) -> list[KeyboardButton]:
         out: list[KeyboardButton] = []
         for item in items_in:
+            label_key = None
             if isinstance(item, tuple):
                 action, text = item[0], item[1]
+                label_key = item[2] if len(item) > 2 else None
             else:
                 action, text = None, item
             if (text or "").strip():
-                out.append(_kb(text, action=action, ui=ui))
+                out.append(_kb(text, action=action, ui=ui, label_key=label_key))
         return out
 
     if footer_row:
