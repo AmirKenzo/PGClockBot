@@ -43,7 +43,6 @@ class ZeroRateTickTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertIsNone(result)
         self.assertEqual(profile.billing_watermark_bytes, GB)
-        session.commit.assert_not_awaited()
 
 
 class ZeroRatePlanPurchaseTests(unittest.IsolatedAsyncioTestCase):

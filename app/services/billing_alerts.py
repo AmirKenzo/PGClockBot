@@ -1,8 +1,9 @@
-"""Low-balance warnings for PAYG resellers.
+"""Owner and reseller alerts for PAYG billing.
 
-A reseller is warned once per level as the wallet drains (see
-``LOW_BALANCE_WARN_LEVELS``). The admin who owns the reseller receives the same
-warning so they can follow up before the account is suspended.
+Low balance: a reseller is warned once per level as the wallet drains (see
+``LOW_BALANCE_WARN_LEVELS``); the admin who owns the reseller gets the same
+warning. Billing problems (a tick that cannot bill a reseller) are announced to
+that admin once per episode.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import html
 import logging
 from datetime import datetime, timezone
+from enum import StrEnum
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +25,33 @@ from app.services.reseller_access import parse_telegram_ids
 logger = logging.getLogger(__name__)
 
 LOW_BALANCE_WARN_LEVELS: tuple[int, ...] = (100_000, 50_000)
+
+
+class TickIssue(StrEnum):
+    NO_ADMIN = "no_admin"
+    ADMIN_MISSING = "admin_missing"
+    PANEL_UNAVAILABLE = "panel_unavailable"
+    NO_TRAFFIC_FIELD = "no_traffic_field"
+    RATE_ZERO = "rate_zero"
+
+
+PANEL_TICK_ISSUES: tuple[TickIssue, ...] = (
+    TickIssue.NO_ADMIN,
+    TickIssue.ADMIN_MISSING,
+    TickIssue.PANEL_UNAVAILABLE,
+    TickIssue.NO_TRAFFIC_FIELD,
+)
+
+_TICK_ISSUE_TEXT: dict[TickIssue, str] = {
+    TickIssue.NO_ADMIN: "هیچ ادمین پاسارگاردی به این نماینده متصل نیست",
+    TickIssue.ADMIN_MISSING: "ادمین پاسارگارد این نماینده در پنل پیدا نشد",
+    TickIssue.PANEL_UNAVAILABLE: "دریافت مصرف از پاسارگارد ناموفق بود",
+    TickIssue.NO_TRAFFIC_FIELD: "پاسخ پاسارگارد فیلد مصرف ترافیک ندارد",
+    TickIssue.RATE_ZERO: (
+        "نرخ هر گیگ این نماینده صفر است؛ یک پلن PAYG با نرخ مثبت به او بدهید "
+        "(مصرف تا آن زمان نگه داشته می‌شود و بعد از اصلاح حساب می‌شود)"
+    ),
+}
 
 
 def warn_band(balance: int) -> int | None:
@@ -122,6 +151,62 @@ async def _owner_recipients(
         if chat_ids:
             return int(parent.bot_user_id), sorted(chat_ids)
     return None, [int(i) for i in get_settings().admin_ids]
+
+
+async def report_tick_issue(
+    session: AsyncSession,
+    profile: ResellerProfile,
+    issue: TickIssue,
+) -> bool:
+    """Tell the owner admin about a billing problem once per episode; True when announced."""
+    result = await session.execute(
+        update(ResellerProfile)
+        .where(
+            ResellerProfile.user_id == int(profile.user_id),
+            or_(
+                ResellerProfile.billing_tick_issue.is_(None),
+                ResellerProfile.billing_tick_issue != issue.value,
+            ),
+        )
+        .values(billing_tick_issue=issue.value)
+        .execution_options(synchronize_session=False)
+    )
+    await session.commit()
+    if result.rowcount != 1:
+        return False
+    await session.refresh(profile)
+    owner_shop_id, owner_chat_ids = await _owner_recipients(session, profile)
+    await _send(session, owner_shop_id, owner_chat_ids, _tick_issue_text(profile, issue))
+    return True
+
+
+async def clear_tick_issue(
+    session: AsyncSession,
+    profile: ResellerProfile,
+    issues: tuple[TickIssue, ...],
+) -> None:
+    """Forget a resolved problem so the same one is announced again if it returns."""
+    if profile.billing_tick_issue not in {issue.value for issue in issues}:
+        return
+    await session.execute(
+        update(ResellerProfile)
+        .where(
+            ResellerProfile.user_id == int(profile.user_id),
+            ResellerProfile.billing_tick_issue.in_([issue.value for issue in issues]),
+        )
+        .values(billing_tick_issue=None)
+        .execution_options(synchronize_session=False)
+    )
+    await session.commit()
+    await session.refresh(profile)
+
+
+def _tick_issue_text(profile: ResellerProfile, issue: TickIssue) -> str:
+    return (
+        "⚠️ <b>مصرف نماینده PAYG حساب نمی‌شود</b>\n"
+        f"نماینده: <code>{_reseller_label(profile)}</code>\n"
+        f"{_TICK_ISSUE_TEXT[issue]}."
+    )
 
 
 def _reseller_label(profile: ResellerProfile) -> str:

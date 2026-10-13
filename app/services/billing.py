@@ -16,7 +16,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ResellerBillingRate, ResellerBillingTransaction, ResellerProfile
-from app.services.billing_alerts import claim_low_balance_warning, notify_low_balance
+from app.services.billing_alerts import (
+    PANEL_TICK_ISSUES,
+    TickIssue,
+    claim_low_balance_warning,
+    clear_tick_issue,
+    notify_low_balance,
+    report_tick_issue,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -890,7 +897,9 @@ async def tick_reseller_usage(
             "billing skip reseller=%s — no traffic field on admin payload",
             profile.user_id,
         )
+        await _report_tick_issue_safely(session, profile, TickIssue.NO_TRAFFIC_FIELD)
         return None
+    await clear_tick_issue(session, profile, PANEL_TICK_ISSUES)
 
     watermark = int(profile.billing_watermark_bytes or 0)
     if used < watermark:
@@ -919,7 +928,9 @@ async def tick_reseller_usage(
             profile.user_id,
             getattr(profile, "plan_id", None),
         )
+        await _report_tick_issue_safely(session, profile, TickIssue.RATE_ZERO)
         return None
+    await clear_tick_issue(session, profile, (TickIssue.RATE_ZERO,))
 
     key = f"usage:{int(profile.user_id)}:{watermark}:{used}"
     return await debit_usage(
@@ -945,6 +956,21 @@ async def maybe_warn_low_balance(
     balance = await payg_available_balance(session, profile)
     level = await claim_low_balance_warning(session, profile, balance)
     return None if level is None else (level, balance)
+
+
+async def _report_tick_issue_safely(
+    session: AsyncSession, profile: ResellerProfile, issue: TickIssue
+) -> None:
+    """Announce a skipped reseller without letting a send failure stop the batch."""
+    try:
+        await report_tick_issue(session, profile, issue)
+    except Exception:
+        logger.warning(
+            "billing issue notify failed reseller=%s issue=%s",
+            profile.user_id,
+            issue.value,
+            exc_info=True,
+        )
 
 
 async def run_billing_tick(session: AsyncSession) -> dict[str, int]:
@@ -973,6 +999,7 @@ async def run_billing_tick(session: AsyncSession) -> dict[str, int]:
         uname = (profile.pg_admin_username or "").strip()
         if not uname:
             stats["skipped"] += 1
+            await _report_tick_issue_safely(session, profile, TickIssue.NO_ADMIN)
             continue
         try:
             # Link legacy billing pot → shop wallet before charging / suspend checks
@@ -994,9 +1021,13 @@ async def run_billing_tick(session: AsyncSession) -> dict[str, int]:
                             profile.user_id,
                         )
 
-            admin = await pg.get_admin(uname)
+            gate, admin = await pg.get_admin_gate(uname)
             if not isinstance(admin, dict):
                 stats["skipped"] += 1
+                issue = (
+                    TickIssue.ADMIN_MISSING if gate == "missing" else TickIssue.PANEL_UNAVAILABLE
+                )
+                await _report_tick_issue_safely(session, profile, issue)
                 continue
             tx = await tick_reseller_usage(session, profile, admin, commit=True)
             if tx is not None and int(tx.amount or 0) != 0:
