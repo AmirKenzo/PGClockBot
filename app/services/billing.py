@@ -655,6 +655,39 @@ async def credit_topup(
     return tx
 
 
+def _watermark_covered_by_charge(
+    watermark_before: int,
+    watermark_after: int,
+    charge: int,
+    amount: int,
+    rate_per_gb: int,
+) -> int:
+    """Watermark that matches what the wallet could actually pay.
+
+    A full charge advances to ``watermark_after``. A partial charge advances only
+    over the bytes it paid for, so the unpaid remainder is billed after a top-up.
+    """
+    if amount <= 0 or charge >= amount or rate_per_gb <= 0:
+        return watermark_after
+    paid_bytes = -(-int(charge) * GB // int(rate_per_gb))
+    return min(watermark_after, watermark_before + paid_bytes)
+
+
+async def _rewind_watermark(
+    session: AsyncSession, reseller_user_id: int, *, claimed: int, previous: int
+) -> None:
+    """Move a watermark claimed by this unit of work back to ``previous``."""
+    await session.execute(
+        update(ResellerProfile)
+        .where(
+            ResellerProfile.user_id == int(reseller_user_id),
+            ResellerProfile.billing_watermark_bytes == int(claimed),
+        )
+        .values(billing_watermark_bytes=int(previous))
+        .execution_options(synchronize_session=False)
+    )
+
+
 async def debit_usage(
     session: AsyncSession,
     profile: ResellerProfile,
@@ -675,7 +708,9 @@ async def debit_usage(
       so residual bytes accumulate until they are worth at least 1 toman.
     - If rate is 0, advance watermark without charging (misconfigured plan).
     - Optimistic lock on ``billing_watermark_bytes`` prevents concurrent double-charge.
-    - Money is taken from shop ``wallet_balance`` (never drives balance below 0).
+    - Money is taken from shop ``wallet_balance`` (never drives balance below 0). When the
+      wallet cannot pay the whole delta, the watermark advances only over the paid bytes and
+      the remainder stays unbilled until the wallet is topped up.
     """
     from app.db.models import BotUser
 
@@ -711,6 +746,16 @@ async def debit_usage(
     uid = int(user.id)
     # Never go negative — charge only what the shop wallet holds.
     charge = min(int(amount), max(0, int(wallet_before))) if amount > 0 else 0
+    if amount > 0 and charge <= 0:
+        logger.warning(
+            "billing held reseller=%s owed=%s — wallet empty, usage stays unbilled",
+            rid,
+            amount,
+        )
+        return None
+    billed_after = _watermark_covered_by_charge(
+        expected_wm, int(watermark_after), charge, int(amount), int(rate_per_gb)
+    )
 
     if amount > 0:
         with session.no_autoflush:
@@ -721,7 +766,7 @@ async def debit_usage(
                     ResellerProfile.user_id == rid,
                     ResellerProfile.billing_watermark_bytes == expected_wm,
                 )
-                .values(billing_watermark_bytes=int(watermark_after))
+                .values(billing_watermark_bytes=billed_after)
                 .execution_options(synchronize_session=False)
             )
         if wm_result.rowcount != 1:
@@ -764,9 +809,21 @@ async def debit_usage(
                             .execution_options(synchronize_session=False)
                         )
                     if retry.rowcount != 1:
-                        # Concurrent spender won again — floor at 0 (watermark already claimed).
+                        # Concurrent spender won again — floor at 0.
                         charge = 0
                         await session.refresh(user)
+        if charge <= 0:
+            await _rewind_watermark(session, rid, claimed=billed_after, previous=expected_wm)
+            if commit:
+                await session.commit()
+            await session.refresh(profile)
+            return None
+        covered_after = _watermark_covered_by_charge(
+            expected_wm, int(watermark_after), charge, int(amount), int(rate_per_gb)
+        )
+        if covered_after != billed_after:
+            await _rewind_watermark(session, rid, claimed=billed_after, previous=covered_after)
+            billed_after = covered_after
         await session.refresh(user)
         profile.billing_balance = int(user.wallet_balance or 0)
     else:
@@ -796,7 +853,7 @@ async def debit_usage(
         balance_after=int(user.wallet_balance or 0),
         bytes_delta=int(bytes_delta),
         rate_per_gb=int(rate_per_gb),
-        watermark_after=int(watermark_after),
+        watermark_after=int(billed_after),
         idempotency_key=idempotency_key,
         note=(note or "")[:255] or None,
         created_by="billing_tick",
@@ -973,6 +1030,26 @@ async def _report_tick_issue_safely(
         )
 
 
+async def _report_panel_outage(
+    session: AsyncSession,
+    unreachable: list[ResellerProfile],
+    *,
+    panel_answered: bool,
+) -> None:
+    """Report per-reseller panel failures only when the panel is otherwise reachable.
+
+    A tick where no admin lookup succeeded is a global outage; alerting every
+    reseller would only be noise.
+    """
+    if not unreachable:
+        return
+    if not panel_answered:
+        logger.warning("billing tick: panel unreachable for %s resellers", len(unreachable))
+        return
+    for profile in unreachable:
+        await _report_tick_issue_safely(session, profile, TickIssue.PANEL_UNAVAILABLE)
+
+
 async def run_billing_tick(session: AsyncSession) -> dict[str, int]:
     """Charge all active PAYG resellers. Returns simple counters."""
     stats = {"checked": 0, "charged": 0, "skipped": 0, "errors": 0, "linked": 0, "restored": 0}
@@ -994,6 +1071,8 @@ async def run_billing_tick(session: AsyncSession) -> dict[str, int]:
     from app.services.pasarguard import get_pg
 
     pg = get_pg()
+    panel_unreachable: list[ResellerProfile] = []
+    panel_answered = False
     for profile in profiles:
         stats["checked"] += 1
         uname = (profile.pg_admin_username or "").strip()
@@ -1022,13 +1101,16 @@ async def run_billing_tick(session: AsyncSession) -> dict[str, int]:
                         )
 
             gate, admin = await pg.get_admin_gate(uname)
+            if gate == "missing":
+                panel_answered = True
             if not isinstance(admin, dict):
                 stats["skipped"] += 1
-                issue = (
-                    TickIssue.ADMIN_MISSING if gate == "missing" else TickIssue.PANEL_UNAVAILABLE
-                )
-                await _report_tick_issue_safely(session, profile, issue)
+                if gate == "missing":
+                    await _report_tick_issue_safely(session, profile, TickIssue.ADMIN_MISSING)
+                else:
+                    panel_unreachable.append(profile)
                 continue
+            panel_answered = True
             tx = await tick_reseller_usage(session, profile, admin, commit=True)
             if tx is not None and int(tx.amount or 0) != 0:
                 stats["charged"] += 1
@@ -1056,4 +1138,5 @@ async def run_billing_tick(session: AsyncSession) -> dict[str, int]:
         except Exception:
             stats["errors"] += 1
             logger.exception("billing tick failed reseller=%s", profile.user_id)
+    await _report_panel_outage(session, panel_unreachable, panel_answered=panel_answered)
     return stats
