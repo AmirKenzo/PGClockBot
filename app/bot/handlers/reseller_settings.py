@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
+
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot import keyboards as kb
+from app.bot.nav_input import finish_text_step
 from app.bot.tg_utils import safe_edit_text
 from app.db.models import BotUser
 from app.services.resellers import get_reseller_profile, has_bot_perm
@@ -33,6 +37,9 @@ from app.services.settings_button_labels import (
     BTN_PAY_WALLET_DISCOUNT,
     shop_button_subs,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 async def _lasting_kb(session, db_user, classic, *, is_reseller_bot=False, reseller_owner_id=None):
@@ -356,17 +363,10 @@ class _Scoped:
             reset_shop_reseller_id(self._token)
 
 
-async def _render_hub(
-    callback: CallbackQuery,
-    session: AsyncSession,
-    profile,
-    db_user: BotUser | None = None,
-    *,
-    is_reseller_bot: bool = False,
-    reseller_owner_id: int | None = None,
-    refresh_keyboard: bool = False,
-):
-    """Hub tip under the message; lasting reply chrome healed on cancel/save."""
+HubPanel = tuple[str, InlineKeyboardMarkup | None]
+
+
+async def _hub_panel(session: AsyncSession, profile) -> HubPanel:
     bot_line = f"@{profile.bot_username}" if profile.bot_username else "توکن ثبت نشده"
     text = (
         "⚙️ <b>تنظیمات سریع فروشگاه</b>\n\n"
@@ -381,14 +381,54 @@ async def _render_hub(
     base = (await get_reseller_panel_base_url(session) or "").rstrip("/")
     if base.startswith("http"):
         rows.append(
-            [
-                InlineKeyboardButton(
-                    text="🌐 تنظیمات کامل در وب‌پنل",
-                    url=f"{base}/shop-settings",
-                )
-            ]
+            [InlineKeyboardButton(text="🌐 تنظیمات کامل در وب‌پنل", url=f"{base}/shop-settings")]
         )
-    markup = _kb(rows) if rows else None
+    return text, (_kb(rows) if rows else None)
+
+
+async def _close_input(
+    message: Message,
+    state: FSMContext,
+    *,
+    text: str,
+    markup: InlineKeyboardMarkup | None,
+) -> None:
+    """Turn the input prompt into the next panel (same bubble) and drop the typed reply."""
+    await finish_text_step(message, state, text=text, inline=markup)
+    await state.clear()
+    try:
+        await message.delete()
+    except TelegramBadRequest:
+        logger.debug("could not delete settings input message", exc_info=True)
+
+
+async def _close_input_to_hub(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    profile,
+    *,
+    note: str | None = None,
+) -> None:
+    text, markup = await _hub_panel(session, profile)
+    await _close_input(
+        message, state, text=f"{note}\n\n{text}" if note else text, markup=markup
+    )
+
+
+
+async def _render_hub(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    profile,
+    db_user: BotUser | None = None,
+    *,
+    is_reseller_bot: bool = False,
+    reseller_owner_id: int | None = None,
+    refresh_keyboard: bool = False,
+):
+    """Hub tip under the message; lasting reply chrome healed on cancel/save."""
+    text, markup = await _hub_panel(session, profile)
     if callback.message:
         await safe_edit_text(callback.message, text, reply_markup=markup)
         if refresh_keyboard and db_user is not None:
@@ -856,11 +896,7 @@ async def settings_edit_save(message: Message, state: FSMContext, session: Async
     key = data.get("edit_key")
     text = (message.text or "").strip()
     if kb.is_cancel_text(text) or not key:
-        await state.clear()
-        await message.answer(
-            "لغو شد.",
-            reply_markup=await _lasting_kb(session, db_user, kb.reseller_settings_reply_keyboard(), is_reseller_bot=is_reseller_bot, reseller_owner_id=reseller_owner_id),
-        )
+        await _close_input_to_hub(message, state, session, profile)
         return
     if key == "force_join_channel":
         from app.services.users import normalize_force_join_channel_value
@@ -870,11 +906,7 @@ async def settings_edit_save(message: Message, state: FSMContext, session: Async
 
     text = pack_setting_from_message(key, message)
     await set_setting(session, key, text, reseller_id=profile.user_id)
-    await state.clear()
-    await message.answer(
-        "✅ ذخیره شد.",
-        reply_markup=await _lasting_kb(session, db_user, kb.reseller_settings_reply_keyboard(), is_reseller_bot=is_reseller_bot, reseller_owner_id=reseller_owner_id),
-    )
+    await _close_input_to_hub(message, state, session, profile, note="✅ ذخیره شد.")
 
 
 @router.callback_query(F.data == "res:st:sup:add")
@@ -920,8 +952,7 @@ async def support_title_save(message: Message, state: FSMContext, session: Async
             reseller_owner_id=reseller_owner_id,
         ):
             return
-        await state.clear()
-        await message.answer("لغو شد.", reply_markup=await _lasting_kb(session, db_user, kb.reseller_settings_reply_keyboard(), is_reseller_bot=is_reseller_bot, reseller_owner_id=reseller_owner_id))
+        await _close_input_to_hub(message, state, session, profile)
         return
     await state.update_data(support_title=text)
     from app.bot.nav_input import ask_text
@@ -946,8 +977,7 @@ async def support_telegram_save(message: Message, state: FSMContext, session: As
         return
     text = (message.text or "").strip()
     if kb.is_cancel_text(text):
-        await state.clear()
-        await message.answer("لغو شد.", reply_markup=await _lasting_kb(session, db_user, kb.reseller_settings_reply_keyboard(), is_reseller_bot=is_reseller_bot, reseller_owner_id=reseller_owner_id))
+        await _close_input_to_hub(message, state, session, profile)
         return
     data = await state.get_data()
     title = data.get("support_title") or "پشتیبانی"
@@ -958,13 +988,15 @@ async def support_telegram_save(message: Message, state: FSMContext, session: As
         telegram=text,
         reseller_id=profile.user_id,
     )
-    await state.clear()
     if err2:
+        await state.clear()
         await message.answer(f"❌ {err2}")
         return
-    await message.answer(
-        "✅ پشتیبان اضافه شد.",
-        reply_markup=_kb([[InlineKeyboardButton(text="💬 پشتیبان‌ها", callback_data="res:st:sec:support")]]),
+    await _close_input(
+        message,
+        state,
+        text="✅ پشتیبان اضافه شد.",
+        markup=_kb([[InlineKeyboardButton(text="💬 پشتیبان‌ها", callback_data="res:st:sec:support")]]),
     )
 
 
@@ -1015,8 +1047,7 @@ async def bot_token_save(message: Message, state: FSMContext, session: AsyncSess
         return
     text = (message.text or "").strip()
     if kb.is_cancel_text(text):
-        await state.clear()
-        await message.answer("لغو شد.", reply_markup=await _lasting_kb(session, db_user, kb.reseller_settings_reply_keyboard(), is_reseller_bot=is_reseller_bot, reseller_owner_id=reseller_owner_id))
+        await _close_input_to_hub(message, state, session, profile)
         return
     from app.services.resellers import complete_reseller_setup
     from app.services.reseller_bots import start_reseller_bot_for_profile
@@ -1046,8 +1077,9 @@ async def bot_token_save(message: Message, state: FSMContext, session: AsyncSess
     except Exception:
         await message.answer("❌ توکن نامعتبر است")
         return
-    await state.clear()
-    await message.answer(
-        f"✅ ربات @{uname} ثبت و راه‌اندازی شد.",
-        reply_markup=_kb([[InlineKeyboardButton(text="⚙️ تنظیمات", callback_data="res:st:hub")]]),
+    await _close_input(
+        message,
+        state,
+        text=f"✅ ربات @{uname} ثبت و راه‌اندازی شد.",
+        markup=_kb([[InlineKeyboardButton(text="⚙️ تنظیمات", callback_data="res:st:hub")]]),
     )

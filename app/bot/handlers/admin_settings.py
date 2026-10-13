@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import inspect
+import logging
+
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -13,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot import keyboards as kb
 from app.bot.auth import bot_admin_settings_in_flow, is_platform_admin as _is_admin
 from app.bot.auth import require_bot_owner
+from app.bot.nav_input import finish_text_step
 from app.bot.tg_utils import safe_edit_text
 from app.db.models import BotUser, Plan
 from app.services.notifications import NOTIFY_PREFS
@@ -35,12 +39,19 @@ from app.services.settings_button_labels import (
 )
 
 
-async def _lasting_kb(session, db_user, classic):
-    from app.bot.nav_chrome import lasting_staff_reply
-    return await lasting_staff_reply(
-        session, db_user, classic=classic,
-        is_reseller_bot=False, reseller_owner_id=None,
-    )
+def _hub_markup(ui: dict[str, str]) -> InlineKeyboardMarkup:
+    # nav_inline imports this package's helpers; defer to avoid an import cycle.
+    from app.bot.nav_inline import admin_settings_hub_keyboard
+
+    return admin_settings_hub_keyboard(ui)
+
+
+async def _delete_input_message(message: Message) -> None:
+    """Remove the operator's typed value so the edited panel stays the only bubble."""
+    try:
+        await message.delete()
+    except TelegramBadRequest:
+        logger.debug("could not delete settings input message", exc_info=True)
 
 
 async def _silent_settings_cancel(
@@ -50,11 +61,16 @@ async def _silent_settings_cancel(
     db_user: BotUser,
 ) -> None:
     """Cancel typed settings input without a «لغو شد.» bubble (like Back)."""
-    from app.bot.handlers.reply_nav import open_admin_settings_hub
-
+    ui = await get_all_settings(session)
+    await finish_text_step(
+        message, state, text=_SETTINGS_HUB_TEXT, inline=_hub_markup(ui)
+    )
     await state.clear()
     await _keep_settings_nav(state)
-    await open_admin_settings_hub(message, session, db_user, state, push=False)
+    await _delete_input_message(message)
+
+logger = logging.getLogger(__name__)
+Panel = tuple[str, InlineKeyboardMarkup]
 
 router = Router(name="admin_settings")
 
@@ -563,7 +579,6 @@ async def _render_sub(callback: CallbackQuery, session: AsyncSession, sec_id: st
             back_cb=back,
             extra_rows=extra,
         )
-        return
     if isinstance(payload, list):
         await _render_fields(callback, session, title=title, fields=payload, back_cb=back)
         return
@@ -728,34 +743,29 @@ async def _keep_settings_nav(state: FSMContext | None) -> None:
     await nav.set_nav_level(state, nav.NAV_ADMIN_SETTINGS, push=False)
 
 
-async def _answer_fields(
-    message: Message,
+async def _fields_panel(
     session: AsyncSession,
     *,
     title: str,
     fields: list[Field],
     back_cb: str,
     extra_rows: list[list[InlineKeyboardButton]] | None = None,
-) -> None:
+) -> Panel:
     ui = await get_all_settings(session)
     rows = [[_field_button(ui, k, lab, kind)] for k, lab, kind in fields]
     if extra_rows:
         rows.extend(extra_rows)
     rows.append(_back_row(("⬅️ بازگشت", back_cb)))
-    await message.answer(
-        f"<b>{title}</b>\nبرای تغییر، روی مورد بزنید.",
-        reply_markup=_kb(rows),
-    )
+    return f"<b>{title}</b>\nبرای تغییر، روی مورد بزنید.", _kb(rows)
 
 
-async def _answer_settings_location(
-    message: Message,
+async def _settings_location_panel(
     session: AsyncSession,
     loc: tuple[str, str] | None,
-) -> None:
-    """Re-open the subsection the operator was editing (new message, one Back)."""
+) -> Panel | None:
+    """Panel of the subsection the operator was editing, to show in place."""
     if not loc:
-        return
+        return None
     sec_id, sub_id = loc
     if sec_id == "notify":
         ui = await get_all_settings(session)
@@ -766,16 +776,15 @@ async def _answer_settings_location(
                 [InlineKeyboardButton(text=f"{mark} {title}", callback_data=f"adm:st:tog:{key}")]
             )
         rows.append(_back_row(("⬅️ بازگشت", "adm:st:hub")))
-        await message.answer(
+        return (
             "🔔 <b>اعلان‌های ادمین اصلی</b>\n"
             "روشن/خاموش کنید (مستقل از نمایندگان):",
-            reply_markup=_kb(rows),
+            _kb(rows),
         )
-        return
     if not sub_id:
         sec = SECTIONS.get(sec_id)
         if not sec:
-            return
+            return None
         rows: list[list[InlineKeyboardButton]] = []
         for sub in sec.get("subs") or []:
             rows.append(
@@ -787,34 +796,20 @@ async def _answer_settings_location(
                 ]
             )
         rows.append(_back_row(("⬅️ بازگشت", "adm:st:hub")))
-        await message.answer(
-            f"⚙️ <b>{sec['title']}</b>\nزیر‌بخش را انتخاب کنید:",
-            reply_markup=_kb(rows),
-        )
-        return
+        return f"⚙️ <b>{sec['title']}</b>\nزیر‌بخش را انتخاب کنید:", _kb(rows)
 
     sec = SECTIONS.get(sec_id) or {}
     sub = next((s for s in (sec.get("subs") or []) if s[0] == sub_id), None)
     if not sub:
-        return
+        return None
     title = sub[1]
     payload = sub[2]
     back = f"adm:st:sec:{sec_id}"
     if payload == "trial":
-        await message.answer(
+        return (
             "🧪 <b>پلن تست</b>\nاز دکمه زیر ادامه دهید.",
-            reply_markup=_kb(
-                [
-                    [
-                        InlineKeyboardButton(
-                            text="⬅️ بازگشت به پلن تست",
-                            callback_data="adm:st:sub:service:trial",
-                        )
-                    ]
-                ]
-            ),
+            _kb([[InlineKeyboardButton(text="⬅️ بازگشت به پلن تست", callback_data="adm:st:sub:service:trial")]]),
         )
-        return
     if payload == "custom":
         ui = await get_all_settings(session)
         extra = [
@@ -826,31 +821,19 @@ async def _answer_settings_location(
             ],
             [InlineKeyboardButton(text="اتصال پاسارگارد", callback_data="adm:custom")],
         ]
-        await _answer_fields(
-            message,
+        return await _fields_panel(
             session,
             title=title,
             fields=CUSTOM_PRICE,
             back_cb=back,
             extra_rows=extra,
         )
-        return
     if isinstance(payload, list):
-        await _answer_fields(message, session, title=title, fields=payload, back_cb=back)
-        return
+        return await _fields_panel(session, title=title, fields=payload, back_cb=back)
     # menu_layout / menu_order — one Back into that sub (callback still works with nav kept)
-    await message.answer(
+    return (
         f"<b>{title}</b>",
-        reply_markup=_kb(
-            [
-                [
-                    InlineKeyboardButton(
-                        text="⬅️ بازگشت",
-                        callback_data=f"adm:st:sub:{sec_id}:{sub_id}",
-                    )
-                ]
-            ]
-        ),
+        _kb([[InlineKeyboardButton(text="⬅️ بازگشت", callback_data=f"adm:st:sub:{sec_id}:{sub_id}")]]),
     )
 
 
@@ -863,23 +846,15 @@ async def _finish_settings_text_edit(
     loc: tuple[str, str] | None,
     note: str = "✅ ذخیره شد.",
 ) -> None:
-    """Confirm save, restore lasting reply KB, return to previous subsection.
-
-    Under inline nav the lasting KB is the stable main menu (not settings chrome).
-    """
+    """Turn the input prompt into the subsection panel (same bubble) with a save note."""
+    panel = await _settings_location_panel(session, loc)
+    if panel is None:
+        panel = (_SETTINGS_HUB_TEXT, _hub_markup(await get_all_settings(session)))
+    text, markup = panel
+    await finish_text_step(message, state, text=f"{note}\n\n{text}", inline=markup)
     await state.clear()
     await _keep_settings_nav(state)
-    await message.answer(
-        note,
-        reply_markup=await _lasting_kb(
-            session, db_user, kb.admin_settings_reply_keyboard()
-        ),
-    )
-    try:
-        await _answer_settings_location(message, session, loc)
-    except Exception:
-        pass
-
+    await _delete_input_message(message)
 
 
 # ----- callbacks: navigation -----
