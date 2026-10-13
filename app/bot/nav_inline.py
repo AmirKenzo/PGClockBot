@@ -727,6 +727,7 @@ def pg_hub_keyboard(
     *,
     features: frozenset[str] | set[str] | None = None,
     can_create_user: bool = True,
+    back_callback: str = "nv:adm:product",
 ) -> InlineKeyboardMarkup:
     """PG feature hub — leaf buttons reuse ``adm:pg:*``."""
     from app.bot.reply_keyboards import (
@@ -762,7 +763,7 @@ def pg_hub_keyboard(
         )
         if key in cb_map
     ]
-    return _pack_hub_keyboard(buttons, ui, back_callback="nv:adm:product")
+    return _pack_hub_keyboard(buttons, ui, back_callback=back_callback)
 
 
 def admin_loyalty_manage_hub_keyboard(
