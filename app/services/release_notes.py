@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Newest first. Update page shows every version after the installed one through the target.
 RELEASE_NOTES_FA: dict[str, list[str]] = {
+    "0.3.41": [
+        "PAYG: تغییر حالت ثابت/PAYG با تأیید صریح؛ واترمارک شروع از ترافیک فعلی پنل؛ نرخ صفر رد می‌شود؛ هشدار یک‌بارهٔ مشکلات تیک به ادمین مالک (#732)",
+        "مایگریشن 0049 (billing_tick_issue)",
+        "ریستور: restore/pre-v0.3.41-v0.3.40",
+    ],
     "0.3.40": [
         "PAYG: خرید/اعطای پلن، billing_enabled را روشن می‌کند؛ هشدار کمبود موجودی در ۱۰۰٬۰۰۰ و ۵۰٬۰۰۰ تومان به نماینده و ادمین مالک (#731)",
         "مایگریشن 0048 (billing_low_warned_level)",
