@@ -14,7 +14,7 @@ from typing import Any
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.state import State
 from aiogram.types import (
     CallbackQuery,
@@ -196,7 +196,7 @@ async def delete_user_message(message: Message) -> None:
     """Remove the operator's typed reply so the edited panel stays the only bubble."""
     try:
         await message.delete()
-    except TelegramBadRequest:
+    except TelegramAPIError:
         logger.debug("could not delete typed input message", exc_info=True)
 
 
