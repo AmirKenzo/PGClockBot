@@ -4,7 +4,10 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from aiogram.types import MessageEntity
+
 from app.bot import keyboards as kb
+from app.services.rich_text import pack_rich_text
 from app.bot.reply_keyboards import main_reply_keyboard, reseller_hub_main_keyboard
 
 LABEL = "🔄 شروع مجدد"
@@ -33,6 +36,16 @@ class RestartRowTests(unittest.TestCase):
     def test_shop_bot_reseller_keyboard_has_restart(self) -> None:
         rows = _rows(reseller_hub_main_keyboard(None, {}))
         self.assertEqual(rows[-1], [LABEL])
+
+    def test_premium_emoji_in_label_becomes_button_icon(self) -> None:
+        packed = pack_rich_text(
+            "🔄 شروع مجدد",
+            [MessageEntity(type="custom_emoji", offset=0, length=2, custom_emoji_id="5123")],
+        )
+        markup = main_reply_keyboard("user", has_services=True, ui={"btn_restart": packed})
+        restart = markup.keyboard[-1][0]
+        self.assertEqual(restart.icon_custom_emoji_id, "5123")
+        self.assertEqual(restart.text, "شروع مجدد")
 
     def test_toggle_off_hides_button_but_label_still_navigates_home(self) -> None:
         ui = {"show_restart_button": "0"}
